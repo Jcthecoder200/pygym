@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # CHANGE THIS if "pygym" is already taken on PyPI (check https://pypi.org/project/pygym/ first).
 # The name you pip install can differ from the import name, which stays `pygym`.
-name = "pygym"
+name = "pygym_cityu"
 dynamic = ["version"]          # single source of truth: src/pygym/__init__.py -> __version__
 description = "Micro-exercises that teach Python built-ins, right inside your coding environment."
 readme = "README.md"
@@ -13,7 +13,7 @@ requires-python = ">=3.9"
 license = { text = "MIT" }
 # CHANGE THIS: your own name / team name.
 authors = [
-    { name = "pygym contributors" }
+    { name = "pygym_cityu_contributors" }
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
