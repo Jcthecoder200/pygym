@@ -1,0 +1,58 @@
+name: Publish to PyPI
+
+# Runs whenever you create a GitHub Release (e.g. tag v0.0.0).
+# That's how you trigger every new PyPI release: no manual `twine upload` needed.
+on:
+  release:
+    types: [published]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install package with dev tools
+        run: python -m pip install -e ".[dev]"
+      - name: Validate exercise dataset
+        run: python tools/validate_exercises.py
+      - name: Run tests
+        run: python -m pytest -q
+
+  build:
+    needs: test          # a release with failing tests never gets built or published
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install build tool
+        run: python -m pip install --upgrade build
+      - name: Build package
+        run: python -m build
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Must match the "Environment name" you enter on PyPI's Trusted
+    # Publisher form, and must exist under your GitHub repo's
+    # Settings -> Environments (create one named "pypi").
+    environment: pypi
+    permissions:
+      id-token: write  # required for PyPI Trusted Publishing (OIDC)
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
