@@ -31,8 +31,8 @@ dev = ["pytest"]
 
 [project.urls]
 # CHANGE THIS once the GitHub repo exists: PyPI shows it on the project page.
-Homepage = "https://github.com/YOUR-USERNAME/pygym"
-Changelog = "https://github.com/YOUR-USERNAME/pygym/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/Jcthecoder200/pygym"
+Changelog = "https://github.com/Jcthecoder200/pygym/blob/main/CHANGELOG.md"
 
 [tool.setuptools.dynamic]
 version = { attr = "pygym.__version__" }
