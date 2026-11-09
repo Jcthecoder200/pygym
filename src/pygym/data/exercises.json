@@ -1,0 +1,239 @@
+[
+  {
+    "id": "zip-01",
+    "target_function": "zip",
+    "difficulty": 1,
+    "question_text": "Write a function 'combine' that takes a list of keys and a list of values, pairs them up, and returns a dictionary. If the lists have different lengths, ignore the extra items.",
+    "function_name": "combine",
+    "function_signature": "def combine(keys, values):",
+    "reference_solution": "def combine(keys, values):\n    return dict(zip(keys, values))",
+    "test_inputs": [
+      [
+        [
+          "a",
+          "b",
+          "c"
+        ],
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      [
+        [
+          "x",
+          "y"
+        ],
+        [
+          1,
+          2,
+          3,
+          4
+        ]
+      ],
+      [
+        [],
+        []
+      ]
+    ],
+    "hint": "zip stops at the shortest input. dict() can turn pairs into a dictionary.",
+    "expected_outputs": [
+      {
+        "a": 1,
+        "b": 2,
+        "c": 3
+      },
+      {
+        "x": 1,
+        "y": 2
+      },
+      {}
+    ]
+  },
+  {
+    "id": "zip-02",
+    "target_function": "zip",
+    "difficulty": 2,
+    "question_text": "Write a function 'transpose' that takes a list of equal-length lists (a matrix) and returns its transpose as a list of lists.",
+    "function_name": "transpose",
+    "function_signature": "def transpose(matrix):",
+    "reference_solution": "def transpose(matrix):\n    return [list(row) for row in zip(*matrix)]",
+    "test_inputs": [
+      [
+        [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            4,
+            5,
+            6
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ]
+      ],
+      [
+        []
+      ]
+    ],
+    "hint": "The * operator unpacks a list into separate arguments: zip(*matrix).",
+    "expected_outputs": [
+      [
+        [
+          1,
+          4
+        ],
+        [
+          2,
+          5
+        ],
+        [
+          3,
+          6
+        ]
+      ],
+      [
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      []
+    ]
+  },
+  {
+    "id": "sum-01",
+    "target_function": "sum",
+    "difficulty": 1,
+    "question_text": "Write a function 'total_squares' that returns the sum of the squares of all numbers in a list.",
+    "function_name": "total_squares",
+    "function_signature": "def total_squares(nums):",
+    "reference_solution": "def total_squares(nums):\n    return sum(n * n for n in nums)",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          -2,
+          2
+        ]
+      ]
+    ],
+    "hint": "sum accepts any iterable, including a generator expression.",
+    "expected_outputs": [
+      14,
+      0,
+      8
+    ]
+  },
+  {
+    "id": "sum-02",
+    "target_function": "sum",
+    "difficulty": 2,
+    "question_text": "Write a function 'flatten_sum' that takes a list of lists of numbers and returns the sum of every number. Use sum's 'start' argument or nested sums.",
+    "function_name": "flatten_sum",
+    "function_signature": "def flatten_sum(groups):",
+    "reference_solution": "def flatten_sum(groups):\n    return sum(sum(g) for g in groups)",
+    "test_inputs": [
+      [
+        [
+          [
+            1,
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4,
+            5,
+            6
+          ]
+        ]
+      ],
+      [
+        [
+          [],
+          []
+        ]
+      ],
+      [
+        []
+      ]
+    ],
+    "hint": "An empty list sums to 0, so empty groups are fine.",
+    "expected_outputs": [
+      21,
+      0,
+      0
+    ]
+  },
+  {
+    "id": "sorted-01",
+    "target_function": "sorted",
+    "difficulty": 1,
+    "question_text": "Write a function 'longest_first' that takes a list of words and returns them sorted from longest to shortest. Words of equal length keep their original order.",
+    "function_name": "longest_first",
+    "function_signature": "def longest_first(words):",
+    "reference_solution": "def longest_first(words):\n    return sorted(words, key=len, reverse=True)",
+    "test_inputs": [
+      [
+        [
+          "pear",
+          "fig",
+          "banana",
+          "kiwi"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "bb",
+          "aa",
+          "c"
+        ]
+      ]
+    ],
+    "hint": "sorted takes key= and reverse=. sorted is stable, even with reverse=True.",
+    "expected_outputs": [
+      [
+        "banana",
+        "pear",
+        "kiwi",
+        "fig"
+      ],
+      [],
+      [
+        "bb",
+        "aa",
+        "c"
+      ]
+    ]
+  }
+]
