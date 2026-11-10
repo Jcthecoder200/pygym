@@ -25,6 +25,9 @@ classifiers = [
 ]
 dependencies = ["rich>=13.0"]
 
+[project.scripts]
+pygym = "pygym.menu:main"
+
 [project.optional-dependencies]
 llm = []          # stretch goal: LLM mode dependencies go here
 dev = ["pytest"]
