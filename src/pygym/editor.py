@@ -165,9 +165,10 @@ def _screen(width: int, height: int) -> Tuple[int, int]:
 def _header_parts(ex) -> List[Tuple[str, str]]:
     """The question line as (text, style) pieces: zip  ●○○  level 1 ─ Write a function ..."""
     question = " ".join(ex.question_text.split())
+    badge = [("  ", ""), (style.AI_BADGE, PALETTE["ai_badge"])] if style.is_generated(ex) else []
     return [(ex.target_function, PALETTE["target"]), ("  ", ""),
             (style.dots(ex.difficulty), PALETTE["dots"]),
-            (f"  level {ex.difficulty}", PALETTE["muted"]), (" ─ ", PALETTE["muted"]),
+            (f"  level {ex.difficulty}", PALETTE["muted"]), *badge, (" ─ ", PALETTE["muted"]),
             (question, "")]
 
 
@@ -247,8 +248,14 @@ class Editor:
         self.intro_visible = True  # the start screen in the empty area, until the code first changes
         self.load_exercise()
         self.message, self.message_kind = START_HINT, ""
+        self._show_notice()
 
     # -- helpers --
+
+    def _show_notice(self) -> None:
+        """Session.notice (AI warning / fallback note) goes on the message line, if there is one."""
+        if getattr(self.session, "notice", ""):
+            self.message, self.message_kind = self.session.notice, "notice"
 
     def load_exercise(self) -> None:
         """Reset the buffer to the starter text of the current exercise."""
@@ -403,6 +410,7 @@ class Editor:
         self.show_response(resp)
         if resp.clear_code:
             self.load_exercise()
+            self._show_notice()  # a new exercise may be generated (or a fallback): say so
         if resp.quit:
             self.done = True
             self.farewell = ("Hint: " if resp.kind == "hint" else "") + resp.text
@@ -603,7 +611,7 @@ def _editor_frame(ed: Editor, width: int, height: int, no_color: bool = False):
         else:
             rows.append(Text("~", style=PALETTE["filler"]))
     if ed.intro_visible:
-        _overlay_intro(rows, header, width)
+        _overlay_intro(rows, header, width, getattr(ed.session, "notice", ""))
 
     label = {INSERT: "INSERT", COMMAND: "COMMAND"}.get(ed.mode, NORMAL)
     status_row = _status_line(label, ed.session.exercise.id, f"{b.row + 1},{b.col + 1}", width,
@@ -659,12 +667,21 @@ def _intro_lines(width: int) -> List[Text]:
     return lines
 
 
-def _overlay_intro(rows: List[Text], header: int, width: int) -> None:
-    """Draw the start screen over the "~" rows below the code (only the rows that fit)."""
+def _notice_lines(notice: str, width: int) -> List[Text]:
+    """Session.notice wrapped for the start screen, then one empty line."""
+    if not notice:
+        return []
+    wrapped = textwrap.wrap(style.NOTICE_ICON + notice, width=max(20, min(width - 6, 76)))
+    return [Text(row, style=PALETTE["notice"]) for row in wrapped] + [Text("")]
+
+
+def _overlay_intro(rows: List[Text], header: int, width: int, notice: str = "") -> None:
+    """Draw the start screen over the "~" rows below the code (only the rows that fit).
+    Session.notice, if any, comes first so it is never the part that gets cut."""
     filler = [i for i in range(header, len(rows)) if rows[i].plain == "~"]
     if len(filler) < 3:
         return
-    lines = _intro_lines(width)
+    lines = _notice_lines(notice, width) + _intro_lines(width)
     room = len(filler) - 1  # keep one plain "~" row between the code and the text
     if len(lines) > room:
         lines = lines[:room - 1] + [Text(":intro for the full list", style=PALETTE["muted"])]

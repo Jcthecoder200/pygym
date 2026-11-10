@@ -9,6 +9,7 @@ anything later) behaves the same way. A front-end only:
 from __future__ import annotations
 
 import builtins
+import inspect
 from typing import List, Optional, Set, Tuple
 
 from . import grader, loader, progress
@@ -21,7 +22,7 @@ COMMANDS: List[Tuple[str, str]] = [
     (":q", "quit (refused if your code changed since the last :w or the last check failed)"),
     (":q!", "quit and throw your code away"),
     (":h", "hint"),
-    (":help", "the built-in's own documentation"),
+    (":help", "the function's own documentation"),
     (":s", "skip to another exercise"),
     (":solution", "show the solution"),
     (":intro", "show this list of commands again"),
@@ -29,7 +30,7 @@ COMMANDS: List[Tuple[str, str]] = [
 COMMAND_NAMES = frozenset(name for name, _ in COMMANDS)
 # Short descriptions for tight spaces (the editor's start screen). Same commands as COMMANDS.
 SHORT = {":w": "check your code", ":wq": "check, then quit", ":q": "quit",
-         ":q!": "quit without checking", ":h": "hint", ":help": "the built-in's documentation",
+         ":q!": "quit without checking", ":h": "hint", ":help": "the function's documentation",
          ":s": "skip to another exercise", ":solution": "show the solution",
          ":intro": "show this list again"}
 
@@ -46,6 +47,14 @@ def _normalize(code: Optional[str]) -> str:
     while lines and not lines[-1]:
         lines.pop()
     return "\n".join(lines)
+
+
+def _signature(obj) -> str:
+    """"(data)" for statistics.median; "" when Python can't tell (some C functions)."""
+    try:
+        return str(inspect.signature(obj))
+    except (TypeError, ValueError):
+        return ""
 
 
 MODES = ("preset", "ai")
@@ -131,7 +140,14 @@ class Session:
         if cmd == ":help":
             return Response(self.help(), "help")
         if cmd == ":s":
-            self.skip()
+            notice = self.notice
+            try:
+                self.skip()
+            except loader.ExerciseUnavailable:
+                # Only for a function without presets whose generation failed this time.
+                self.notice = notice  # the current exercise did not change
+                return Response("No other exercise is available right now. Keep going with this "
+                                "one, or :q! to quit.", "refused")
             return Response("Skipped. Here is another one.", "exercise", clear_code=True)
         if cmd == ":solution":
             return Response(self.solution(), "solution")
@@ -168,10 +184,23 @@ class Session:
         return self.exercise.hint or "No hint for this one. Re-read the question carefully."
 
     def help(self) -> str:
-        target = getattr(builtins, self.exercise.target_function, None)
-        doc = target.__doc__ if target is not None else None
+        name = self.exercise.target_function
+        if "." in name:  # "str.join", "statistics.median": the same lookup the AI engine uses
+            target = None
+            try:
+                from .ai import targets
+                target = targets.target_object(targets.resolve(name))
+            except Exception:  # unknown or not allowed: no documentation, never a crash
+                pass
+            doc = inspect.getdoc(target) if target is not None else None
+            if doc:
+                sig = _signature(target)
+                return f"{name}{sig}\n\n{doc}" if sig else doc
+        else:
+            target = getattr(builtins, name, None)
+            doc = target.__doc__ if target is not None else None
         if not doc:
-            return f"No documentation available for '{self.exercise.target_function}'."
+            return f"No documentation available for '{name}'."
         return doc.strip()
 
     def solution(self) -> str:

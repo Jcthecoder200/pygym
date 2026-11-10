@@ -1,7 +1,8 @@
 # Front-end guide (terminal editor, Jupyter, tkinter popup and any future UI)
 
-Last updated: 2026-11-10. Applies to the code on `main` after the "terminal editor + Jupyter
-magic" change and the Rich look (colours, panels, syntax highlighting).
+Last updated: 2026-11-11. Applies to the code on `main` after the "terminal editor + Jupyter
+magic" change, the Rich look (colours, panels, syntax highlighting), and AI mode with the
+`pygym` main menu (see [The `pygym` command, modes and AI exercises](#the-pygym-command-modes-and-ai-exercises)).
 
 ## TL;DR
 
@@ -14,6 +15,58 @@ magic" change and the Rich look (colours, panels, syntax highlighting).
 - **Rich** (`rich>=13.0`) is pygym's one required dependency. The line CLI, the Jupyter magic and
   the terminal editor all draw with it; the shared colours and panels are in
   **`src/pygym/style.py`** (see [Look and colours](#look-and-colours)).
+- **New (2026-11-11):** every front-end must show **`Session.notice`** when it is not empty, and
+  mark generated exercises (`exercise.source == "ai"`) with an **AI** badge. See below.
+
+## The `pygym` command, modes and AI exercises
+
+**The command.** `pip install -e .` creates a `pygym` console command (`python -m pygym` works
+without reinstalling). The code is in `src/pygym/menu.py`; `src/pygym/__main__.py` only calls it.
+
+```
+pygym                                   the Rich main menu: library -> function -> level
+pygym zip --level 2 --mode ai --ui text one exercise straight away, then exit
+pygym statistics.median -l beginner     a function from another library
+pygym --list [LIBRARY] | --status | --set-mode ai | --set-model qwen2.5:3b | --version
+```
+
+In the menu every prompt takes `m` (switch preset/AI, saved), `l` level, `u` window
+(`auto editor text tk`), `?` help, `q` quit. At the level prompt `b` means *beginner*
+(use `back` or `0` to go back). After an exercise ends you are back in the menu. The menu only
+chooses *which* exercise; it builds a `Session(target, level, mode)` and calls `ui.run()`.
+
+**Modes** (`Session(name, difficulty, mode)`; `mode=None` = the saved setting in
+`PYGYM_HOME/config.json`):
+
+| Mode | What `Session` does |
+|---|---|
+| `"preset"` | a hand-written exercise. A function with **no** preset asks the AI instead. |
+| `"ai"` | always asks the AI (`pygym.ai.generate_exercise`). If that fails, uses a preset. |
+
+The front-end does not need to know the mode. It needs two things:
+
+1. **`Session.notice`** (a string, often `""`). It is the AI warning
+   (`"AI-generated exercise: it may be incorrect. Use it carefully."`) or a fallback note
+   (`"AI mode unavailable (Ollama is not running at ...); using the preset exercises."`).
+   Show it **when the exercise appears and again after every `:s`** (the new exercise may be
+   generated, or the AI may have failed this time). It is updated before `handle(":s")`
+   returns.
+2. **`exercise.source`**: `"ai"` for a generated exercise. Show an **AI** badge next to the level
+   (`style.is_generated(ex)`, `style.AI_BADGE`).
+
+How each front-end does it:
+
+| Front-end | Notice | AI badge |
+|---|---|---|
+| line CLI | yellow line `! ...` under the exercise panel, at start and after `:s` (`style.exercise_view(session)`) | in the panel's title line |
+| Jupyter | same as the CLI, at `exercise()` and after `%pygym :s` | same |
+| editor | on the message line at start and after `:s` (yellow, `! `), and at the top of the start screen (wrapped, never cut) | in the question line: `zip  ●○○  level 1   AI  ─ ...` |
+| tkinter | `ui.run(..., "tk")` prints it in the terminal before the window opens (`run_tk` is unchanged) | not yet (teammate's code) |
+| menu | does **not** print it (the front-end does; this avoids showing it twice) | — |
+
+**Dotted targets.** Generated exercises can be about `str.join` or `statistics.median`.
+`exercise.target_function` is then the full name. `:help` shows that function's documentation
+(with its signature); titles say e.g. `Documentation: statistics.median`.
 
 ## Which UI runs
 
@@ -60,8 +113,8 @@ New tests: `tests/test_session.py`, `tests/test_cli.py`.
 | `:q` | Close / window X | quits only if the code has not changed since the last `:w` **and** the last check did not fail (nothing tried yet = may quit) | `quit=True`; or `kind="refused"` (changed code); or `kind="refused"` + `ask_reveal=True` (last check failed) |
 | `:q!` | Close without checking | always quits | `quit=True` |
 | `:h` | Hint | — | `kind="hint"` |
-| `:help` | Docs | the target built-in's docstring | `kind="help"` (long text: show in a scrollable area) |
-| `:s` | Skip | loads another exercise, forgets the saved code | `kind="exercise"`, `clear_code=True` |
+| `:help` | Docs | the target function's docstring (`zip`, `str.join`, `statistics.median`) | `kind="help"` (long text: show in a scrollable area) |
+| `:s` | Skip | loads another exercise, forgets the saved code; may update `Session.notice` | `kind="exercise"`, `clear_code=True`; or `kind="refused"` (no `clear_code`) when no other exercise exists right now (a function without presets whose generation failed) |
 | `:solution` | Solution | — | `kind="solution"` |
 | `:intro` | Commands / ? | the list of all commands (`session.commands_text()`) | `kind="commands"` |
 
@@ -174,7 +227,9 @@ The logic needs no terminal: `Editor(session).feed("i")`, `parse_keys(b"\x1b[A")
 `render(editor, 80, 24)` (optionally `color_system="256"`, `"standard"` or `None`). See
 `tests/test_editor.py`, which also checks the colour codes (mode block, current line number,
 message colours, `NO_COLOR`). `tests/test_editor_pty.py` runs the real
-editor in a pseudo-terminal.
+editor in a pseudo-terminal, `tests/test_menu_pty.py` the `pygym` menu (builtins → map →
+beginner → editor → `:q!` → menu → `q`). `tests/test_notice.py` checks the notice and the AI
+badge in every front-end.
 
 ### Known limits
 
@@ -280,6 +335,8 @@ plain-text fallback. All colours are in `PALETTE` in **`src/pygym/style.py`**, b
 | `hint` / `hint_line` | yellow (panel border) / cyan (editor line) | hints | `#00a6b2` |
 | `help` | blue | documentation panel / pager title | `#1e63c6` |
 | `solution` | green | solution pager title | `#1a8f2e` |
+| `ai_badge` | bold black on yellow | ` AI ` next to the level of a generated exercise | `#c9a400` background |
+| `notice` | yellow | `! ` + `Session.notice` | `#b58900` |
 | `gutter` / `gutter_current` | grey50 / bold yellow | editor line numbers | — |
 | `mode_normal` / `mode_insert` / `mode_command` | bold black on blue / green / yellow | editor mode block | — |
 | `status_bar` / `status_pos` | white on grey23 / black on grey58 | editor status line | — |
@@ -292,7 +349,9 @@ The builders (each returns a Rich renderable; `style.to_plain(r)` gives its text
 | Builder | What it draws |
 |---|---|
 | `style.intro(how_to=None)` | cyan panel "pygym" / `v<version>`: one line, the how-to text (Jupyter passes its own), the `COMMANDS` table |
-| `style.exercise_header(ex)` | magenta panel titled with the exercise id: `zip  ●○○  level 1`, the question, the signature |
+| `style.exercise_header(ex)` | magenta panel titled with the exercise id: `zip  ●○○  level 1` (+ ` AI ` badge for a generated one), the question, the signature |
+| `style.exercise_view(session)` | `exercise_header` + the `Session.notice` line below it (if any): use this one |
+| `style.notice(text)` | `! ` + text in the `notice` colour |
 | `style.response(resp, session)` | a `Response` by `kind`: icon + coloured line, hint / documentation panel, or `Solution:` + code |
 | `style.solution(code)`, `style.code(code)` | `Solution:` + highlighted code / highlighted code only |
 | `style.line(text, kind)` | one line with the icon (`style.ICONS`) and colour of `kind` |
@@ -319,6 +378,8 @@ def run(cmd):
 
 Things that are easy to get wrong:
 
+0. **Notice and badge.** Show `session.notice` (if not empty) in the status label when the
+   exercise appears and after Skip, and add "AI" to the title when `ex.source == "ai"`.
 1. **Pre-filled starter text.** The box starts with `def combine(keys, values):\n    `. Session
    doesn't know about it, so `:q` would be refused before the student typed anything. In
    `show()`, set `session.saved_code = starter_text` right after inserting it.

@@ -28,6 +28,8 @@ PALETTE = {
     "target": "bold magenta",       # the built-in's name ("zip")
     "dots": "yellow",               # difficulty dots ●●○
     "muted": "dim",                 # explanations, level, ids, "Skipped", "Bye!"
+    "ai_badge": "bold black on yellow",  # " AI " next to the level of a generated exercise
+    "notice": "yellow",             # Session.notice (AI warning or fallback note)
     # responses
     "pass": "bold green",
     "fail": "bold red",
@@ -53,11 +55,12 @@ PALETTE = {
 CODE_THEME = "monokai"
 DOT_FULL, DOT_EMPTY, MAX_LEVEL = "●", "○", 3
 # Shown before a one-line response (CLI, Jupyter and the editor's message line).
-ICONS = {"pass": "✓ ", "fail": "✗ ", "refused": "! "}
-# The style of a one-line response by Response.kind ("" = a message from the front-end itself).
+ICONS = {"pass": "✓ ", "fail": "✗ ", "refused": "! ", "notice": "! "}
+# The style of a one-line response by Response.kind ("" = a message from the front-end itself;
+# "notice" = Session.notice, shown by the front-ends, never a Response kind).
 LINE_STYLES = {"pass": PALETTE["pass"], "fail": PALETTE["fail"], "refused": PALETTE["refused"],
                "unknown": PALETTE["unknown"], "exercise": PALETTE["muted"],
-               "quit": PALETTE["muted"], "": PALETTE["muted"]}
+               "quit": PALETTE["muted"], "notice": PALETTE["notice"], "": PALETTE["muted"]}
 
 CLI_HOW_TO = ("Type your function line by line. A line that is exactly a command runs it; "
               "every other line becomes part of your code. After a :w, the next lines you "
@@ -75,11 +78,36 @@ def code(source: str) -> Syntax:
     return Syntax(source, "python", theme=CODE_THEME, background_color="default")
 
 
+AI_BADGE = " AI "  # marks a generated (unreviewed) exercise, next to the level
+NOTICE_ICON = ICONS["notice"]
+
+
+def is_generated(ex) -> bool:
+    return getattr(ex, "source", "preset") == "ai"
+
+
 def title_line(ex) -> Text:
-    """zip  ●○○  level 1"""
-    return Text.assemble((ex.target_function, PALETTE["target"]), "  ",
+    """zip  ●○○  level 1   (and an " AI " badge after it for a generated exercise)"""
+    line = Text.assemble((ex.target_function, PALETTE["target"]), "  ",
                          (dots(ex.difficulty), PALETTE["dots"]),
                          (f"  level {ex.difficulty}", PALETTE["muted"]))
+    if is_generated(ex):
+        line.append("  ")
+        line.append(AI_BADGE, style=PALETTE["ai_badge"])
+    return line
+
+
+def notice(text: str) -> Text:
+    """Session.notice as one coloured line: "! AI-generated exercise: it may be incorrect. ..." """
+    return line(text, "notice")
+
+
+def exercise_view(session) -> RenderableType:
+    """The exercise panel, with Session.notice below it when there is one (line CLI, Jupyter)."""
+    header = exercise_header(session.exercise)
+    if getattr(session, "notice", ""):
+        return Group(header, notice(session.notice))
+    return header
 
 
 def commands_table() -> Table:

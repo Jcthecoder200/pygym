@@ -31,7 +31,7 @@ def run_text(session: Session, input_fn: Callable[[str], str] = input,
              print_fn: Callable[..., None] = print) -> None:
     show = _printer(print_fn)
     show(style.intro())
-    show(style.exercise_header(session.exercise))
+    show(style.exercise_view(session))  # with Session.notice (AI warning / fallback note) below
     buffer: List[str] = []  # lines typed since the last :w
 
     while True:
@@ -62,7 +62,7 @@ def run_text(session: Session, input_fn: Callable[[str], str] = input,
                 show(style.solution(session.solution()))
         if resp.clear_code:
             buffer = []
-            show(style.exercise_header(session.exercise))
+            show(style.exercise_view(session))
         if resp.quit:
             return
 
@@ -149,6 +149,8 @@ def run(session: Session, ui: str = "auto") -> None:
                   "console); using the line CLI instead.")
             run_text(session)
     elif ui == "tk":
+        if session.notice:  # the popup has no place for it: say it in the terminal first
+            print(style.NOTICE_ICON + session.notice)
         run_tk(session)
     else:
         run_text(session)

@@ -73,7 +73,7 @@ def start(session, ip=None) -> None:
     ip.register_magic_function(pygym_magic, magic_kind="line_cell", magic_name="pygym")
     console = _console()
     console.print(_intro(session.exercise))
-    console.print(style.exercise_header(session.exercise))
+    console.print(style.exercise_view(session))  # with Session.notice below, if any
 
 
 def pygym_magic(line: str, cell: Optional[str] = None) -> None:
@@ -103,7 +103,7 @@ def _run(line: str, cell: Optional[str]) -> None:
         if answer.strip().lower() in ("y", "yes"):
             console.print(style.solution(session.solution()))
     if resp.clear_code:
-        console.print(style.exercise_header(session.exercise))
+        console.print(style.exercise_view(session))
     if resp.quit:
         console.print(Text("Session ended.", style=style.PALETTE["muted"]))
         _active = None

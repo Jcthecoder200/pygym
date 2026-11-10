@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 
 ## [Unreleased]
 ### Added
+- **More built-ins with hand-written exercises:** 17 built-ins now have presets (was 3):
+  `map filter enumerate len max min range any all sorted sum zip` at levels 1, 2 and 3, and
+  `reversed abs divmod round isinstance`. 44 new exercises (49 in total), all listed as
+  **pending human review** in `docs/EXERCISE_REVIEW.md`. New `tests/test_dataset.py`.
+- **AI mode** (`pygym.ai`): a local model (Ollama, default `qwen2.5:1.5b`; or any
+  OpenAI-compatible server) writes a new exercise for a built-in, a method (`str.join`) or a
+  function from an allowed standard module (`statistics.median`, `itertools.chain`). The model's
+  reference solution runs only in the sandbox; the expected results come from running it, never
+  from the model. Up to 4 attempts in 20 s, good exercises are cached in
+  `PYGYM_HOME/generated/`, and `PYGYM_NO_AI=1` turns it all off. See `docs/AI_MODE.md`.
+- Two modes, `preset` and `ai`: `exercise(name, mode=...)`, `Session(name, level, mode)`, saved
+  in `PYGYM_HOME/config.json` (`pygym.config`). Preset mode asks the AI for functions that have no
+  preset; AI mode falls back to presets. `Session.notice` says which happened.
+- **The `pygym` command and main menu** (`python -m pygym` also works): a Rich menu that asks for
+  the library, the function and the level (beginner / intermediate / advanced), with `m` to
+  switch modes. Flags: `pygym zip --level 2 --mode ai --ui text`, `--list`, `--status`,
+  `--set-mode`, `--set-model`, `--version`.
+- Every front-end shows `Session.notice` (the AI warning or a fallback note) when an exercise
+  appears and after `:s`; generated exercises get a yellow **AI** badge next to the level.
+- `:help` works for dotted targets (`str.join`, `statistics.median`, `itertools.chain`).
+- The grader can check module functions and methods (`allowed_imports` per exercise, limited to a
+  list of safe modules; a runtime "was it called" check for built-ins and module functions;
+  methods of built-in types are checked statically only).
+- Tests: AI engine with a fake model (no network), config, menu (incl. a pseudo-terminal run),
+  dataset, notice/badge in every front-end; `tests/conftest.py` keeps every test away from the
+  real `~/.pygym` and from any real model.
 - `Session.handle(command, code)` returning a `Response`: one place for all command rules, so every
   front-end (CLI, editor, Jupyter, tkinter) behaves the same.
 - vim-style commands: `:w` `:wq` `:q` `:q!` `:h` `:help` `:s` `:solution` `:intro`.
@@ -22,6 +48,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   Windows layer with a fake `msvcrt`), Jupyter and the styles (186 tests in total).
 
 ### Changed
+- The menu no longer prints `Session.notice` itself; the front-end shows it (it appeared twice in
+  the line CLI).
+- `:help` is described as "the function's own documentation" (it is no longer only built-ins).
+- `tools/validate_exercises.py` also checks required fields, levels, function names, signatures and
+  that `expected_outputs` has one entry per test.
 - Rich is now a required dependency (`rich>=13.0`); pygym is no longer dependency-free.
 - `exercise(ui="auto")` picks: notebook → Jupyter, Linux/macOS terminal → editor,
   otherwise tkinter popup (the Windows default), otherwise the line CLI.
@@ -29,13 +60,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   and no longer needs `END` to submit.
 
 ### Fixed
+- **P0-1:** an exercise with missing or too few `expected_outputs` let any code pass. `grade()` now
+  reports it as broken ("Use :s to skip it."), and the result loop checks that the number of
+  outputs matches.
+- `:s` crashed (uncaught `ExerciseUnavailable`) for a function without presets when the next
+  generation failed; it now keeps the current exercise and says no other one is available.
+- AI mode: a test case that also contained its answer (`{"orders": [...], "expected_result": 3.5}`,
+  seen in a real reply) was passed to the function as the argument; such keys are now ignored.
 - The line CLI crashed with `EOFError` on Ctrl-D / closed input; it now exits cleanly.
 
 ### Still planned
-- Grow the pilot to ~10 built-ins with 1-2 exercises each.
-- Real-machine testing of the tkinter popup (and moving it to `Session.handle`) and of the editor
-  on Windows and macOS.
-- (Stretch) LLM mode.
+- Human review of the 44 new preset exercises (`docs/EXERCISE_REVIEW.md`).
+- AI mode quality: with qwen2.5 1.5B/3B most replies are rejected (0 of 5 real requests gave a
+  usable exercise on the development laptop). Try bigger models / filling the cache ahead of time.
+- Real-machine testing of the tkinter popup (and moving it to `Session.handle`, plus showing
+  `Session.notice` and the AI badge inside it) and of the editor on Windows and macOS.
 
 ## [0.0.0] - 2026-11-09
 ### Added
