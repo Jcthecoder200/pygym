@@ -235,5 +235,2282 @@
         "c"
       ]
     ]
+  },
+  {
+    "id": "map-01",
+    "target_function": "map",
+    "difficulty": 1,
+    "question_text": "Use map to write a function 'squares' that takes a list of numbers and returns a list with the square of each number, in the same order.",
+    "function_name": "squares",
+    "function_signature": "def squares(nums):",
+    "reference_solution": "def squares(nums):\n    return list(map(lambda n: n * n, nums))",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          -3,
+          0,
+          4
+        ]
+      ],
+      [
+        [
+          5
+        ]
+      ]
+    ],
+    "hint": "map returns an iterator, not a list. Wrap it with list(...).",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        1,
+        4,
+        9
+      ],
+      [],
+      [
+        9,
+        0,
+        16
+      ],
+      [
+        25
+      ]
+    ]
+  },
+  {
+    "id": "map-02",
+    "target_function": "map",
+    "difficulty": 2,
+    "question_text": "Use map with two lists to write a function 'add_pairs' that returns a list with the sum of the items at the same position in 'a' and 'b'. If the lists have different lengths, stop at the shorter one.",
+    "function_name": "add_pairs",
+    "function_signature": "def add_pairs(a, b):",
+    "reference_solution": "def add_pairs(a, b):\n    return list(map(lambda x, y: x + y, a, b))",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          3
+        ],
+        [
+          10,
+          20,
+          30
+        ]
+      ],
+      [
+        [
+          1,
+          2
+        ],
+        [
+          5,
+          6,
+          7,
+          8
+        ]
+      ],
+      [
+        [],
+        [
+          1
+        ]
+      ],
+      [
+        [
+          -1,
+          1
+        ],
+        [
+          1,
+          -1
+        ]
+      ]
+    ],
+    "hint": "map accepts several iterables. The function gets one item from each, like zip. It stops at the shortest.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        11,
+        22,
+        33
+      ],
+      [
+        6,
+        8
+      ],
+      [],
+      [
+        0,
+        0
+      ]
+    ]
+  },
+  {
+    "id": "map-03",
+    "target_function": "map",
+    "difficulty": 3,
+    "question_text": "Write a function 'length_report' that takes a list of words and returns a list of two items: a list with the length of each word, and the total of those lengths. Use map to get the lengths.",
+    "function_name": "length_report",
+    "function_signature": "def length_report(words):",
+    "reference_solution": "def length_report(words):\n    lengths = list(map(len, words))\n    return [lengths, sum(lengths)]",
+    "test_inputs": [
+      [
+        [
+          "a",
+          "bb",
+          "ccc"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "hello"
+        ]
+      ],
+      [
+        [
+          "",
+          "ab",
+          ""
+        ]
+      ]
+    ],
+    "hint": "A map object can be read only once. If you loop over it twice, the second time it is empty. Turn it into a list first.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        [
+          1,
+          2,
+          3
+        ],
+        6
+      ],
+      [
+        [],
+        0
+      ],
+      [
+        [
+          5
+        ],
+        5
+      ],
+      [
+        [
+          0,
+          2,
+          0
+        ],
+        2
+      ]
+    ]
+  },
+  {
+    "id": "filter-01",
+    "target_function": "filter",
+    "difficulty": 1,
+    "question_text": "Use filter to write a function 'keep_even' that takes a list of integers and returns a list with only the even numbers, in the same order.",
+    "function_name": "keep_even",
+    "function_signature": "def keep_even(nums):",
+    "reference_solution": "def keep_even(nums):\n    return list(filter(lambda n: n % 2 == 0, nums))",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          1,
+          3,
+          5
+        ]
+      ],
+      [
+        [
+          -4,
+          -3,
+          0,
+          7
+        ]
+      ]
+    ],
+    "hint": "filter(function, items) keeps the items for which function returns True. It returns an iterator, so use list(...).",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        2,
+        4,
+        6
+      ],
+      [],
+      [],
+      [
+        -4,
+        0
+      ]
+    ]
+  },
+  {
+    "id": "filter-02",
+    "target_function": "filter",
+    "difficulty": 2,
+    "question_text": "Use filter to write a function 'drop_empty' that takes a list of values and returns a list without the 'empty' ones: values that count as False (0, 0.0, '', None, False and empty lists). Keep the original order.",
+    "function_name": "drop_empty",
+    "function_signature": "def drop_empty(items):",
+    "reference_solution": "def drop_empty(items):\n    return list(filter(None, items))",
+    "test_inputs": [
+      [
+        [
+          0,
+          1,
+          "",
+          "a",
+          null,
+          [],
+          [
+            0
+          ],
+          false,
+          true
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          0,
+          0,
+          ""
+        ]
+      ],
+      [
+        [
+          "x",
+          "",
+          "y"
+        ]
+      ]
+    ],
+    "hint": "If you pass None as the first argument, filter keeps the items that are true.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        1,
+        "a",
+        [
+          0
+        ],
+        true
+      ],
+      [],
+      [],
+      [
+        "x",
+        "y"
+      ]
+    ]
+  },
+  {
+    "id": "filter-03",
+    "target_function": "filter",
+    "difficulty": 3,
+    "question_text": "Use filter to write a function 'above_average' that takes a list of numbers and returns a list of the numbers that are strictly greater than the average of the whole list, in the original order. For an empty list return [].",
+    "function_name": "above_average",
+    "function_signature": "def above_average(nums):",
+    "reference_solution": "def above_average(nums):\n    if not nums:\n        return []\n    avg = sum(nums) / len(nums)\n    return list(filter(lambda n: n > avg, nums))",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          3,
+          4,
+          10
+        ]
+      ],
+      [
+        [
+          5,
+          5,
+          5
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          -1,
+          -2,
+          -3,
+          0
+        ]
+      ],
+      [
+        [
+          2,
+          4
+        ]
+      ]
+    ],
+    "hint": "Work out the average first, outside of filter. The function you give to filter can use that variable.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        10
+      ],
+      [],
+      [],
+      [
+        -1,
+        0
+      ],
+      [
+        4
+      ]
+    ]
+  },
+  {
+    "id": "enumerate-01",
+    "target_function": "enumerate",
+    "difficulty": 1,
+    "question_text": "Use enumerate to write a function 'positions_of' that takes a list and a value and returns a list of all positions (starting at 0) where the value appears, in increasing order. If it never appears, return [].",
+    "function_name": "positions_of",
+    "function_signature": "def positions_of(items, value):",
+    "reference_solution": "def positions_of(items, value):\n    return [i for i, x in enumerate(items) if x == value]",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          1,
+          3,
+          1
+        ],
+        1
+      ],
+      [
+        [],
+        5
+      ],
+      [
+        [
+          "a",
+          "b"
+        ],
+        "c"
+      ],
+      [
+        [
+          "x",
+          "x"
+        ],
+        "x"
+      ]
+    ],
+    "hint": "enumerate gives pairs (position, item). Unpack them in the for loop: for i, x in enumerate(items).",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        0,
+        2,
+        4
+      ],
+      [],
+      [],
+      [
+        0,
+        1
+      ]
+    ]
+  },
+  {
+    "id": "enumerate-02",
+    "target_function": "enumerate",
+    "difficulty": 2,
+    "question_text": "Use enumerate to write a function 'number_lines' that takes a list of strings and returns a list of strings where each line has its number (starting at 1), a dot and a space in front. Example: ['apple', 'pear'] -> ['1. apple', '2. pear'].",
+    "function_name": "number_lines",
+    "function_signature": "def number_lines(lines):",
+    "reference_solution": "def number_lines(lines):\n    return [f\"{i}. {line}\" for i, line in enumerate(lines, start=1)]",
+    "test_inputs": [
+      [
+        [
+          "apple",
+          "pear"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "only"
+        ]
+      ],
+      [
+        [
+          "",
+          "b"
+        ]
+      ]
+    ],
+    "hint": "enumerate has a start argument: enumerate(lines, start=1).",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        "1. apple",
+        "2. pear"
+      ],
+      [],
+      [
+        "1. only"
+      ],
+      [
+        "1. ",
+        "2. b"
+      ]
+    ]
+  },
+  {
+    "id": "enumerate-03",
+    "target_function": "enumerate",
+    "difficulty": 3,
+    "question_text": "Use enumerate to write a function 'peak_positions' that takes a list of numbers and returns the list of positions (starting at 0) of every item that is strictly greater than both of its neighbours. The first and the last item have only one neighbour, so they are never peaks. Example: [1, 2, 3, 2, 5, 4] -> [2, 4].",
+    "function_name": "peak_positions",
+    "function_signature": "def peak_positions(nums):",
+    "reference_solution": "def peak_positions(nums):\n    return [i for i, x in enumerate(nums[1:-1], start=1)\n            if x > nums[i - 1] and x > nums[i + 1]]",
+    "test_inputs": [
+      [
+        [
+          1,
+          3,
+          2
+        ]
+      ],
+      [
+        [
+          1,
+          2,
+          3,
+          2,
+          5,
+          4
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          5,
+          5,
+          5
+        ]
+      ],
+      [
+        [
+          1,
+          2
+        ]
+      ],
+      [
+        [
+          2,
+          1,
+          2,
+          1,
+          2
+        ]
+      ]
+    ],
+    "hint": "Loop over the inner items nums[1:-1] and use start=1, so the position you get is the position in the full list.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        1
+      ],
+      [
+        2,
+        4
+      ],
+      [],
+      [],
+      [],
+      [
+        2
+      ]
+    ]
+  },
+  {
+    "id": "len-01",
+    "target_function": "len",
+    "difficulty": 1,
+    "question_text": "Use len to write a function 'count_words' that takes a string and returns the number of words in it as an int. Words are separated by one or more spaces. An empty string has 0 words.",
+    "function_name": "count_words",
+    "function_signature": "def count_words(text):",
+    "reference_solution": "def count_words(text):\n    return len(text.split())",
+    "test_inputs": [
+      [
+        "hello world"
+      ],
+      [
+        ""
+      ],
+      [
+        "  a   b  "
+      ],
+      [
+        "one"
+      ]
+    ],
+    "hint": "text.split() with no argument splits on any run of spaces and ignores the ends.",
+    "source": "preset",
+    "expected_outputs": [
+      2,
+      0,
+      2,
+      1
+    ]
+  },
+  {
+    "id": "len-02",
+    "target_function": "len",
+    "difficulty": 2,
+    "question_text": "Use len to write a function 'all_distinct' that takes a list of hashable items (numbers or strings) and returns True if no two items are equal, otherwise False (a bool). An empty list is distinct.",
+    "function_name": "all_distinct",
+    "function_signature": "def all_distinct(items):",
+    "reference_solution": "def all_distinct(items):\n    return len(set(items)) == len(items)",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      [
+        [
+          1,
+          2,
+          1
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "a",
+          "b",
+          "a"
+        ]
+      ],
+      [
+        [
+          "a",
+          "A"
+        ]
+      ]
+    ],
+    "hint": "A set keeps one copy of each item. Compare the length of the set with the length of the list.",
+    "source": "preset",
+    "expected_outputs": [
+      true,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  {
+    "id": "len-03",
+    "target_function": "len",
+    "difficulty": 3,
+    "question_text": "Use len to write a function 'middle_chars' that takes a string and returns its middle character if the length is odd, or its two middle characters if the length is even. An empty string returns ''. Example: 'abc' -> 'b', 'abcd' -> 'bc'.",
+    "function_name": "middle_chars",
+    "function_signature": "def middle_chars(text):",
+    "reference_solution": "def middle_chars(text):\n    n = len(text)\n    return text[(n - 1) // 2: n // 2 + 1]",
+    "test_inputs": [
+      [
+        "abc"
+      ],
+      [
+        "abcd"
+      ],
+      [
+        ""
+      ],
+      [
+        "x"
+      ],
+      [
+        "hello!"
+      ]
+    ],
+    "hint": "Find the index of the middle with integer division (//). For even n the two middle indexes are n // 2 - 1 and n // 2.",
+    "source": "preset",
+    "expected_outputs": [
+      "b",
+      "bc",
+      "",
+      "x",
+      "ll"
+    ]
+  },
+  {
+    "id": "max-01",
+    "target_function": "max",
+    "difficulty": 1,
+    "question_text": "Use max to write a function 'highest_score' that takes a non-empty list of numbers and returns the largest one.",
+    "function_name": "highest_score",
+    "function_signature": "def highest_score(scores):",
+    "reference_solution": "def highest_score(scores):\n    return max(scores)",
+    "test_inputs": [
+      [
+        [
+          3,
+          9,
+          2
+        ]
+      ],
+      [
+        [
+          -5,
+          -2,
+          -9
+        ]
+      ],
+      [
+        [
+          7
+        ]
+      ],
+      [
+        [
+          4,
+          4
+        ]
+      ]
+    ],
+    "hint": "max accepts a list (any iterable) directly: max(scores).",
+    "source": "preset",
+    "expected_outputs": [
+      9,
+      -2,
+      7,
+      4
+    ]
+  },
+  {
+    "id": "max-02",
+    "target_function": "max",
+    "difficulty": 2,
+    "question_text": "Use max to write a function 'longest_word' that takes a list of words and returns the longest one (a string). If several words have the longest length, return the first of them. For an empty list return ''.",
+    "function_name": "longest_word",
+    "function_signature": "def longest_word(words):",
+    "reference_solution": "def longest_word(words):\n    return max(words, key=len, default=\"\")",
+    "test_inputs": [
+      [
+        [
+          "apple",
+          "fig",
+          "banana",
+          "cherry"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      [
+        [
+          "hello"
+        ]
+      ]
+    ],
+    "hint": "max has key= (what to compare) and default= (what to return for an empty input). With ties max returns the first one it saw.",
+    "source": "preset",
+    "expected_outputs": [
+      "banana",
+      "",
+      "a",
+      "hello"
+    ]
+  },
+  {
+    "id": "max-03",
+    "target_function": "max",
+    "difficulty": 3,
+    "question_text": "Use max to write a function 'most_common_item' that takes a list and returns the item that appears most often. If several items tie, return the one that appears first in the list. For an empty list return None.",
+    "function_name": "most_common_item",
+    "function_signature": "def most_common_item(items):",
+    "reference_solution": "def most_common_item(items):\n    return max(items, key=items.count, default=None)",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          2,
+          3,
+          3
+        ]
+      ],
+      [
+        [
+          "a",
+          "b",
+          "a"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          5
+        ]
+      ],
+      [
+        [
+          3,
+          1,
+          1,
+          3,
+          2
+        ]
+      ]
+    ],
+    "hint": "The key function can be a method: items.count gives how many times an item appears. max keeps the first item among equal keys.",
+    "source": "preset",
+    "expected_outputs": [
+      2,
+      "a",
+      null,
+      5,
+      3
+    ]
+  },
+  {
+    "id": "min-01",
+    "target_function": "min",
+    "difficulty": 1,
+    "question_text": "Use min to write a function 'first_alphabetically' that takes a non-empty list of strings and returns the one that comes first in alphabetical order, comparing plain strings (so capital letters come before lowercase letters: 'B' is before 'a').",
+    "function_name": "first_alphabetically",
+    "function_signature": "def first_alphabetically(words):",
+    "reference_solution": "def first_alphabetically(words):\n    return min(words)",
+    "test_inputs": [
+      [
+        [
+          "pear",
+          "apple",
+          "fig"
+        ]
+      ],
+      [
+        [
+          "b",
+          "B"
+        ]
+      ],
+      [
+        [
+          "zebra"
+        ]
+      ],
+      [
+        [
+          "Zed",
+          "apple"
+        ]
+      ]
+    ],
+    "hint": "min works on strings too. Strings are compared character by character using their codes.",
+    "source": "preset",
+    "expected_outputs": [
+      "apple",
+      "B",
+      "zebra",
+      "Zed"
+    ]
+  },
+  {
+    "id": "min-02",
+    "target_function": "min",
+    "difficulty": 2,
+    "question_text": "Use min to write a function 'closest_to_zero' that takes a list of numbers and returns the number with the smallest absolute value. If two numbers are equally close, return the first of them. For an empty list return None.",
+    "function_name": "closest_to_zero",
+    "function_signature": "def closest_to_zero(nums):",
+    "reference_solution": "def closest_to_zero(nums):\n    return min(nums, key=abs, default=None)",
+    "test_inputs": [
+      [
+        [
+          3,
+          -1,
+          4
+        ]
+      ],
+      [
+        [
+          -2,
+          2
+        ]
+      ],
+      [
+        [
+          2,
+          -2
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          0,
+          5
+        ]
+      ]
+    ],
+    "hint": "min(nums, key=abs, default=None). The key decides what is compared, but min returns the original item.",
+    "source": "preset",
+    "expected_outputs": [
+      -1,
+      -2,
+      2,
+      null,
+      0
+    ]
+  },
+  {
+    "id": "min-03",
+    "target_function": "min",
+    "difficulty": 3,
+    "question_text": "Use min to write a function 'shortest_word' that takes a list of words and returns the shortest one. If several words are equally short, return the one that comes first alphabetically. For an empty list return ''.",
+    "function_name": "shortest_word",
+    "function_signature": "def shortest_word(words):",
+    "reference_solution": "def shortest_word(words):\n    return min(words, key=lambda w: (len(w), w), default=\"\")",
+    "test_inputs": [
+      [
+        [
+          "pear",
+          "fig",
+          "kiwi",
+          "apple",
+          "dog"
+        ]
+      ],
+      [
+        [
+          "b",
+          "a"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "hello"
+        ]
+      ],
+      [
+        [
+          "bb",
+          "aa",
+          "c",
+          "d"
+        ]
+      ]
+    ],
+    "hint": "A key function can return a tuple. Python compares tuples item by item: first the length, then the word.",
+    "source": "preset",
+    "expected_outputs": [
+      "dog",
+      "a",
+      "",
+      "hello",
+      "c"
+    ]
+  },
+  {
+    "id": "range-01",
+    "target_function": "range",
+    "difficulty": 1,
+    "question_text": "Use range to write a function 'up_to' that takes an integer n and returns a list of the integers from 1 to n, including n. If n is less than 1 return [].",
+    "function_name": "up_to",
+    "function_signature": "def up_to(n):",
+    "reference_solution": "def up_to(n):\n    return list(range(1, n + 1))",
+    "test_inputs": [
+      [
+        5
+      ],
+      [
+        1
+      ],
+      [
+        0
+      ],
+      [
+        -3
+      ],
+      [
+        10
+      ]
+    ],
+    "hint": "range(a, b) stops before b, so the end must be n + 1. range is lazy; use list(...) to get the numbers.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      [
+        1
+      ],
+      [],
+      [],
+      [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    ]
+  },
+  {
+    "id": "range-02",
+    "target_function": "range",
+    "difficulty": 2,
+    "question_text": "Use range to write a function 'multiples' that takes two positive integers k and limit and returns a list of all positive multiples of k that are less than or equal to limit, in increasing order. Example: multiples(3, 10) -> [3, 6, 9].",
+    "function_name": "multiples",
+    "function_signature": "def multiples(k, limit):",
+    "reference_solution": "def multiples(k, limit):\n    return list(range(k, limit + 1, k))",
+    "test_inputs": [
+      [
+        3,
+        10
+      ],
+      [
+        5,
+        5
+      ],
+      [
+        7,
+        6
+      ],
+      [
+        2,
+        0
+      ],
+      [
+        4,
+        20
+      ]
+    ],
+    "hint": "range(start, stop, step): start at k, step by k, and remember that stop is not included.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        3,
+        6,
+        9
+      ],
+      [
+        5
+      ],
+      [],
+      [],
+      [
+        4,
+        8,
+        12,
+        16,
+        20
+      ]
+    ]
+  },
+  {
+    "id": "range-03",
+    "target_function": "range",
+    "difficulty": 3,
+    "question_text": "Use range to write a function 'from_the_end' that takes a list and a positive integer step and returns a list of the items at the positions last, last - step, last - 2*step, ... down to the first item (going backwards from the LAST item). Example: from_the_end([1, 2, 3, 4, 5, 6, 7], 3) -> [7, 4, 1].",
+    "function_name": "from_the_end",
+    "function_signature": "def from_the_end(items, step):",
+    "reference_solution": "def from_the_end(items, step):\n    return [items[i] for i in range(len(items) - 1, -1, -step)]",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        3
+      ],
+      [
+        [
+          "a",
+          "b",
+          "c"
+        ],
+        1
+      ],
+      [
+        [],
+        2
+      ],
+      [
+        [
+          9
+        ],
+        5
+      ],
+      [
+        [
+          1,
+          2,
+          3,
+          4
+        ],
+        2
+      ]
+    ],
+    "hint": "range can count down with a negative step. The stop value is excluded, so to include index 0 the stop must be -1.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        7,
+        4,
+        1
+      ],
+      [
+        "c",
+        "b",
+        "a"
+      ],
+      [],
+      [
+        9
+      ],
+      [
+        4,
+        2
+      ]
+    ]
+  },
+  {
+    "id": "any-01",
+    "target_function": "any",
+    "difficulty": 1,
+    "question_text": "Use any to write a function 'has_negative' that takes a list of numbers and returns True if at least one number is negative, otherwise False (a bool).",
+    "function_name": "has_negative",
+    "function_signature": "def has_negative(nums):",
+    "reference_solution": "def has_negative(nums):\n    return any(n < 0 for n in nums)",
+    "test_inputs": [
+      [
+        [
+          1,
+          -2,
+          3
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          0,
+          1
+        ]
+      ],
+      [
+        [
+          -1
+        ]
+      ]
+    ],
+    "hint": "any takes an iterable of values. A generator expression works well: any(n < 0 for n in nums).",
+    "source": "preset",
+    "expected_outputs": [
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "id": "any-02",
+    "target_function": "any",
+    "difficulty": 2,
+    "question_text": "Use any to write a function 'share_item' that takes two lists and returns True if they have at least one item in common, otherwise False (a bool).",
+    "function_name": "share_item",
+    "function_signature": "def share_item(a, b):",
+    "reference_solution": "def share_item(a, b):\n    return any(x in b for x in a)",
+    "test_inputs": [
+      [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ]
+      ],
+      [
+        [],
+        [
+          1
+        ]
+      ],
+      [
+        [
+          1
+        ],
+        [
+          2
+        ]
+      ],
+      [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "b"
+        ]
+      ],
+      [
+        [
+          1,
+          2
+        ],
+        []
+      ]
+    ],
+    "hint": "For each x in a, ask whether x is in b, and let any decide if one answer is True.",
+    "source": "preset",
+    "expected_outputs": [
+      true,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  {
+    "id": "any-03",
+    "target_function": "any",
+    "difficulty": 3,
+    "question_text": "Use any to write a function 'has_value' that takes a grid (a list of rows, each row a list of values) and returns True if at least one cell counts as True (is not 0, '', None, False or an empty list), otherwise False (a bool).",
+    "function_name": "has_value",
+    "function_signature": "def has_value(grid):",
+    "reference_solution": "def has_value(grid):\n    return any(any(row) for row in grid)",
+    "test_inputs": [
+      [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            ""
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            0
+          ],
+          [
+            null,
+            1
+          ]
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          []
+        ]
+      ],
+      [
+        [
+          [
+            "",
+            "x"
+          ]
+        ]
+      ]
+    ],
+    "hint": "any works on a row too: any(row) is True if some item in the row is true. You can nest one any inside another.",
+    "source": "preset",
+    "expected_outputs": [
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "id": "all-01",
+    "target_function": "all",
+    "difficulty": 1,
+    "question_text": "Use all to write a function 'all_positive' that takes a list of numbers and returns True if every number is greater than 0, otherwise False (a bool). An empty list returns True.",
+    "function_name": "all_positive",
+    "function_signature": "def all_positive(nums):",
+    "reference_solution": "def all_positive(nums):\n    return all(n > 0 for n in nums)",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      [
+        [
+          1,
+          0
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          -1
+        ]
+      ]
+    ],
+    "hint": "all(...) is True when nothing is False, so all of an empty input is True.",
+    "source": "preset",
+    "expected_outputs": [
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  {
+    "id": "all-02",
+    "target_function": "all",
+    "difficulty": 2,
+    "question_text": "Use all to write a function 'all_start_with' that takes a list of strings and a prefix string and returns True if every string starts with the prefix, otherwise False (a bool). An empty list returns True.",
+    "function_name": "all_start_with",
+    "function_signature": "def all_start_with(words, prefix):",
+    "reference_solution": "def all_start_with(words, prefix):\n    return all(w.startswith(prefix) for w in words)",
+    "test_inputs": [
+      [
+        [
+          "ab",
+          "abc"
+        ],
+        "ab"
+      ],
+      [
+        [
+          "ab",
+          "ba"
+        ],
+        "a"
+      ],
+      [
+        [],
+        "x"
+      ],
+      [
+        [
+          "x"
+        ],
+        ""
+      ]
+    ],
+    "hint": "Strings have a startswith method. Use it inside a generator expression for all.",
+    "source": "preset",
+    "expected_outputs": [
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  {
+    "id": "all-03",
+    "target_function": "all",
+    "difficulty": 3,
+    "question_text": "Use all to write a function 'rows_are_permutations' that takes a grid (a list of n rows, each row a list of integers) and returns True if every row contains exactly the numbers 1, 2, ..., n, each once, in any order (n is the number of rows). Otherwise return False (a bool). An empty grid returns True.",
+    "function_name": "rows_are_permutations",
+    "function_signature": "def rows_are_permutations(grid):",
+    "reference_solution": "def rows_are_permutations(grid):\n    n = len(grid)\n    return all(sorted(row) == list(range(1, n + 1)) for row in grid)",
+    "test_inputs": [
+      [
+        [
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            2
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ]
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          [
+            1
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            3,
+            1,
+            2
+          ]
+        ]
+      ]
+    ],
+    "hint": "Sort a row and compare it with the list 1..n. Remember that range(1, n + 1) excludes n + 1 and that a row of the wrong length is not a permutation.",
+    "source": "preset",
+    "expected_outputs": [
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  {
+    "id": "sorted-02",
+    "target_function": "sorted",
+    "difficulty": 2,
+    "question_text": "Use sorted to write a function 'ranking' that takes a list of [name, score] pairs and returns a new list of the pairs sorted by score from highest to lowest. Pairs with the same score are sorted by name from A to Z.",
+    "function_name": "ranking",
+    "function_signature": "def ranking(records):",
+    "reference_solution": "def ranking(records):\n    return sorted(records, key=lambda r: (-r[1], r[0]))",
+    "test_inputs": [
+      [
+        [
+          [
+            "bob",
+            80
+          ],
+          [
+            "amy",
+            90
+          ],
+          [
+            "cat",
+            80
+          ]
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          [
+            "z",
+            1
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            "b",
+            5
+          ],
+          [
+            "a",
+            5
+          ]
+        ]
+      ]
+    ],
+    "hint": "The key can return a tuple. Use -score so that bigger scores come first, then the name.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        [
+          "amy",
+          90
+        ],
+        [
+          "bob",
+          80
+        ],
+        [
+          "cat",
+          80
+        ]
+      ],
+      [],
+      [
+        [
+          "z",
+          1
+        ]
+      ],
+      [
+        [
+          "a",
+          5
+        ],
+        [
+          "b",
+          5
+        ]
+      ]
+    ]
+  },
+  {
+    "id": "sorted-03",
+    "target_function": "sorted",
+    "difficulty": 3,
+    "question_text": "Use sorted to write a function 'median' that takes a list of numbers and returns its median: the middle number of the sorted list, or the average of the two middle numbers if the length is even. For an empty list return None. Do not change the input list.",
+    "function_name": "median",
+    "function_signature": "def median(nums):",
+    "reference_solution": "def median(nums):\n    if not nums:\n        return None\n    ordered = sorted(nums)\n    mid = len(ordered) // 2\n    if len(ordered) % 2 == 1:\n        return ordered[mid]\n    return (ordered[mid - 1] + ordered[mid]) / 2",
+    "test_inputs": [
+      [
+        [
+          3,
+          1,
+          2
+        ]
+      ],
+      [
+        [
+          4,
+          1,
+          3,
+          2
+        ]
+      ],
+      [
+        [
+          5
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          -1,
+          -3,
+          -2,
+          -4
+        ]
+      ]
+    ],
+    "hint": "Sort first, then look at the middle index len(...) // 2. For an even length take the two items around the middle.",
+    "source": "preset",
+    "expected_outputs": [
+      2,
+      2.5,
+      5,
+      null,
+      -2.5
+    ]
+  },
+  {
+    "id": "sum-03",
+    "target_function": "sum",
+    "difficulty": 3,
+    "question_text": "Use sum to write a function 'concat_lists' that takes a list of lists and returns one list with all the items in order. Example: [[1, 2], [3], [4, 5]] -> [1, 2, 3, 4, 5].",
+    "function_name": "concat_lists",
+    "function_signature": "def concat_lists(groups):",
+    "reference_solution": "def concat_lists(groups):\n    return sum(groups, [])",
+    "test_inputs": [
+      [
+        [
+          [
+            1,
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4,
+            5
+          ]
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          [],
+          []
+        ]
+      ],
+      [
+        [
+          [
+            "a"
+          ],
+          [
+            "b",
+            "c"
+          ]
+        ]
+      ]
+    ],
+    "hint": "sum starts from 0 by default, and 0 + [1, 2] fails. Give it another start value: sum(groups, []).",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      [],
+      [],
+      [
+        "a",
+        "b",
+        "c"
+      ]
+    ]
+  },
+  {
+    "id": "zip-03",
+    "target_function": "zip",
+    "difficulty": 3,
+    "question_text": "Use zip to write a function 'pairwise_differences' that takes a list of numbers and returns a list with the difference between each item and the one before it (next minus previous). A list with fewer than 2 items gives []. Example: [1, 4, 9, 16] -> [3, 5, 7].",
+    "function_name": "pairwise_differences",
+    "function_signature": "def pairwise_differences(nums):",
+    "reference_solution": "def pairwise_differences(nums):\n    return [b - a for a, b in zip(nums, nums[1:])]",
+    "test_inputs": [
+      [
+        [
+          1,
+          4,
+          9,
+          16
+        ]
+      ],
+      [
+        [
+          5
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          3,
+          1
+        ]
+      ],
+      [
+        [
+          2,
+          2,
+          2
+        ]
+      ]
+    ],
+    "hint": "Zip the list with itself shifted by one: zip(nums, nums[1:]). zip stops at the shorter one.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        3,
+        5,
+        7
+      ],
+      [],
+      [],
+      [
+        -2
+      ],
+      [
+        0,
+        0
+      ]
+    ]
+  },
+  {
+    "id": "reversed-01",
+    "target_function": "reversed",
+    "difficulty": 1,
+    "question_text": "Use reversed to write a function 'reverse_words' that takes a sentence (a string) and returns a string with the words in reverse order, separated by single spaces. Extra spaces in the input are ignored. Example: 'a b c' -> 'c b a'.",
+    "function_name": "reverse_words",
+    "function_signature": "def reverse_words(sentence):",
+    "reference_solution": "def reverse_words(sentence):\n    return \" \".join(reversed(sentence.split()))",
+    "test_inputs": [
+      [
+        "a b c"
+      ],
+      [
+        ""
+      ],
+      [
+        "  hi   there "
+      ],
+      [
+        "one"
+      ]
+    ],
+    "hint": "reversed gives an iterator over the items from the end. \" \".join(...) accepts any iterable of strings.",
+    "source": "preset",
+    "expected_outputs": [
+      "c b a",
+      "",
+      "there hi",
+      "one"
+    ]
+  },
+  {
+    "id": "reversed-02",
+    "target_function": "reversed",
+    "difficulty": 2,
+    "question_text": "Use reversed to write a function 'is_palindrome' that takes a string and returns True if it reads the same forwards and backwards, ignoring spaces and upper/lower case, otherwise False (a bool). An empty string is a palindrome.",
+    "function_name": "is_palindrome",
+    "function_signature": "def is_palindrome(text):",
+    "reference_solution": "def is_palindrome(text):\n    cleaned = text.replace(\" \", \"\").lower()\n    return \"\".join(reversed(cleaned)) == cleaned",
+    "test_inputs": [
+      [
+        "Never odd or even"
+      ],
+      [
+        "hello"
+      ],
+      [
+        ""
+      ],
+      [
+        "A man a plan a canal Panama"
+      ],
+      [
+        "ab"
+      ]
+    ],
+    "hint": "reversed(s) is an iterator, not a string, so s == reversed(s) is always False. Join it first.",
+    "source": "preset",
+    "expected_outputs": [
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  {
+    "id": "abs-01",
+    "target_function": "abs",
+    "difficulty": 1,
+    "question_text": "Use abs to write a function 'distance' that takes two numbers and returns the distance between them on the number line (a non-negative number).",
+    "function_name": "distance",
+    "function_signature": "def distance(a, b):",
+    "reference_solution": "def distance(a, b):\n    return abs(a - b)",
+    "test_inputs": [
+      [
+        3,
+        7
+      ],
+      [
+        7,
+        3
+      ],
+      [
+        -2,
+        -5
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        1.5,
+        4
+      ]
+    ],
+    "hint": "The distance is the absolute value of the difference.",
+    "source": "preset",
+    "expected_outputs": [
+      4,
+      4,
+      3,
+      0,
+      2.5
+    ]
+  },
+  {
+    "id": "abs-02",
+    "target_function": "abs",
+    "difficulty": 2,
+    "question_text": "Use abs to write a function 'count_close' that takes a list of numbers, a centre number and a tolerance, and returns how many numbers are at most 'tolerance' away from the centre (an int). A number exactly 'tolerance' away counts.",
+    "function_name": "count_close",
+    "function_signature": "def count_close(nums, centre, tolerance):",
+    "reference_solution": "def count_close(nums, centre, tolerance):\n    return sum(1 for n in nums if abs(n - centre) <= tolerance)",
+    "test_inputs": [
+      [
+        [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        3,
+        1
+      ],
+      [
+        [],
+        0,
+        1
+      ],
+      [
+        [
+          10,
+          -10
+        ],
+        0,
+        10
+      ],
+      [
+        [
+          1,
+          5
+        ],
+        3,
+        1
+      ]
+    ],
+    "hint": "Check abs(n - centre) <= tolerance for each number. Use <= so that the boundary counts.",
+    "source": "preset",
+    "expected_outputs": [
+      3,
+      0,
+      2,
+      0
+    ]
+  },
+  {
+    "id": "divmod-01",
+    "target_function": "divmod",
+    "difficulty": 1,
+    "question_text": "Use divmod to write a function 'to_minutes_seconds' that takes a number of seconds (a non-negative int) and returns a list [minutes, seconds] of two ints. Example: 125 -> [2, 5].",
+    "function_name": "to_minutes_seconds",
+    "function_signature": "def to_minutes_seconds(total_seconds):",
+    "reference_solution": "def to_minutes_seconds(total_seconds):\n    return list(divmod(total_seconds, 60))",
+    "test_inputs": [
+      [
+        125
+      ],
+      [
+        59
+      ],
+      [
+        0
+      ],
+      [
+        3600
+      ]
+    ],
+    "hint": "divmod(a, b) returns (a // b, a % b) in one call.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        2,
+        5
+      ],
+      [
+        0,
+        59
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        60,
+        0
+      ]
+    ]
+  },
+  {
+    "id": "divmod-02",
+    "target_function": "divmod",
+    "difficulty": 2,
+    "question_text": "Use divmod to write a function 'digit_list' that takes a non-negative integer and returns the list of its decimal digits, most significant first. Example: 123 -> [1, 2, 3]; 0 -> [0]. Do not convert the number to a string.",
+    "function_name": "digit_list",
+    "function_signature": "def digit_list(n):",
+    "reference_solution": "def digit_list(n):\n    digits = []\n    while True:\n        n, d = divmod(n, 10)\n        digits.append(d)\n        if n == 0:\n            break\n    return digits[::-1]",
+    "test_inputs": [
+      [
+        123
+      ],
+      [
+        0
+      ],
+      [
+        7
+      ],
+      [
+        1000
+      ],
+      [
+        90
+      ]
+    ],
+    "hint": "divmod(n, 10) gives the rest of the number and the last digit. The digits come out in reverse order.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        1,
+        2,
+        3
+      ],
+      [
+        0
+      ],
+      [
+        7
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        9,
+        0
+      ]
+    ]
+  },
+  {
+    "id": "divmod-03",
+    "target_function": "divmod",
+    "difficulty": 3,
+    "question_text": "Use divmod to write a function 'shift_clock' that takes a start hour (0-23) and a number of hours to move (it may be negative). It returns a list [days, hour]: how many whole days the clock moved (negative when going back past midnight) and the new hour on the 24-hour clock. Example: shift_clock(3, -5) -> [-1, 22].",
+    "function_name": "shift_clock",
+    "function_signature": "def shift_clock(hour, offset):",
+    "reference_solution": "def shift_clock(hour, offset):\n    return list(divmod(hour + offset, 24))",
+    "test_inputs": [
+      [
+        22,
+        5
+      ],
+      [
+        3,
+        -5
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        10,
+        48
+      ],
+      [
+        23,
+        -47
+      ]
+    ],
+    "hint": "Python's divmod rounds the quotient down (floor), also for negative numbers: divmod(-5, 24) is (-1, 19).",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        1,
+        3
+      ],
+      [
+        -1,
+        22
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        2,
+        10
+      ],
+      [
+        -1,
+        0
+      ]
+    ]
+  },
+  {
+    "id": "round-01",
+    "target_function": "round",
+    "difficulty": 1,
+    "question_text": "Use round to write a function 'round_to_cents' that takes a number and returns it rounded to 2 decimal places (a float or int).",
+    "function_name": "round_to_cents",
+    "function_signature": "def round_to_cents(amount):",
+    "reference_solution": "def round_to_cents(amount):\n    return round(amount, 2)",
+    "test_inputs": [
+      [
+        3.14159
+      ],
+      [
+        2.0
+      ],
+      [
+        -7.896
+      ],
+      [
+        0.30000000000000004
+      ]
+    ],
+    "hint": "round(x, 2) keeps 2 digits after the decimal point.",
+    "source": "preset",
+    "expected_outputs": [
+      3.14,
+      2.0,
+      -7.9,
+      0.3
+    ]
+  },
+  {
+    "id": "round-02",
+    "target_function": "round",
+    "difficulty": 2,
+    "question_text": "Use round to write a function 'round_all' that takes a list of numbers and returns a list of ints, each rounded with Python's own rounding. Note that a number exactly halfway between two integers goes to the EVEN one: round(2.5) is 2 and round(3.5) is 4.",
+    "function_name": "round_all",
+    "function_signature": "def round_all(nums):",
+    "reference_solution": "def round_all(nums):\n    return [round(n) for n in nums]",
+    "test_inputs": [
+      [
+        [
+          0.5,
+          1.5,
+          2.5,
+          3.5
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          -0.5,
+          -1.5,
+          -2.5
+        ]
+      ],
+      [
+        [
+          2.4,
+          2.6
+        ]
+      ]
+    ],
+    "hint": "round(x) with one argument returns an int. Python rounds halves to the nearest even number, not up.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        0,
+        2,
+        2,
+        4
+      ],
+      [],
+      [
+        0,
+        -2,
+        -2
+      ],
+      [
+        2,
+        3
+      ]
+    ]
+  },
+  {
+    "id": "round-03",
+    "target_function": "round",
+    "difficulty": 3,
+    "question_text": "Use round to write a function 'round_to_hundreds' that takes a list of integers and returns a list of ints, each rounded to the nearest hundred with Python's own rounding. Halfway values go to the multiple of 100 whose hundreds digit is even: 1250 -> 1200, 1350 -> 1400.",
+    "function_name": "round_to_hundreds",
+    "function_signature": "def round_to_hundreds(nums):",
+    "reference_solution": "def round_to_hundreds(nums):\n    return [round(n, -2) for n in nums]",
+    "test_inputs": [
+      [
+        [
+          1234,
+          1250,
+          1350,
+          -1250,
+          49
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          0,
+          100,
+          150
+        ]
+      ],
+      [
+        [
+          250,
+          350
+        ]
+      ]
+    ],
+    "hint": "round accepts a negative number of digits: round(1234, -2) rounds to hundreds.",
+    "source": "preset",
+    "expected_outputs": [
+      [
+        1200,
+        1200,
+        1400,
+        -1200,
+        0
+      ],
+      [],
+      [
+        0,
+        100,
+        200
+      ],
+      [
+        200,
+        400
+      ]
+    ]
+  },
+  {
+    "id": "isinstance-01",
+    "target_function": "isinstance",
+    "difficulty": 1,
+    "question_text": "Use isinstance to write a function 'count_strings' that takes a list of mixed values and returns how many of them are strings (an int).",
+    "function_name": "count_strings",
+    "function_signature": "def count_strings(items):",
+    "reference_solution": "def count_strings(items):\n    return sum(1 for x in items if isinstance(x, str))",
+    "test_inputs": [
+      [
+        [
+          1,
+          "a",
+          2.5,
+          "b"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          [],
+          "x",
+          null
+        ]
+      ],
+      [
+        [
+          "a"
+        ]
+      ]
+    ],
+    "hint": "isinstance(value, str) is True when value is a string.",
+    "source": "preset",
+    "expected_outputs": [
+      2,
+      0,
+      1,
+      1
+    ]
+  },
+  {
+    "id": "isinstance-02",
+    "target_function": "isinstance",
+    "difficulty": 2,
+    "question_text": "Use isinstance to write a function 'count_ints' that takes a list of mixed values and returns how many are real integers (an int). True and False are not counted, and 3.0 is a float, so it is not counted either.",
+    "function_name": "count_ints",
+    "function_signature": "def count_ints(items):",
+    "reference_solution": "def count_ints(items):\n    return sum(1 for x in items if isinstance(x, int) and not isinstance(x, bool))",
+    "test_inputs": [
+      [
+        [
+          1,
+          true,
+          2,
+          false,
+          3.0,
+          "4"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          true
+        ]
+      ],
+      [
+        [
+          0,
+          -1
+        ]
+      ]
+    ],
+    "hint": "In Python, bool is a subclass of int, so isinstance(True, int) is True. Exclude bools explicitly.",
+    "source": "preset",
+    "expected_outputs": [
+      2,
+      0,
+      0,
+      2
+    ]
+  },
+  {
+    "id": "isinstance-03",
+    "target_function": "isinstance",
+    "difficulty": 3,
+    "question_text": "Use isinstance to write a function 'sum_nested' that takes a list that may contain numbers, strings and other lists (nested to any depth) and returns the sum of all numbers (ints and floats, but not True or False) found anywhere. Ignore other values. An empty list gives 0.",
+    "function_name": "sum_nested",
+    "function_signature": "def sum_nested(data):",
+    "reference_solution": "def sum_nested(data):\n    total = 0\n    for item in data:\n        if isinstance(item, list):\n            total += sum_nested(item)\n        elif isinstance(item, (int, float)) and not isinstance(item, bool):\n            total += item\n    return total",
+    "test_inputs": [
+      [
+        [
+          1,
+          [
+            2,
+            [
+              3
+            ]
+          ],
+          4
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          [],
+          [
+            []
+          ]
+        ]
+      ],
+      [
+        [
+          "a",
+          [
+            1.5,
+            "b"
+          ],
+          2
+        ]
+      ],
+      [
+        [
+          true,
+          1
+        ]
+      ]
+    ],
+    "hint": "isinstance accepts a tuple of types: isinstance(x, (int, float)). Call your own function again for inner lists (recursion).",
+    "source": "preset",
+    "expected_outputs": [
+      10,
+      0,
+      0,
+      3.5,
+      1
+    ]
   }
 ]
