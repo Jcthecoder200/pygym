@@ -75,7 +75,13 @@ class Session:
             if ex is not None:
                 self.seen.add(ex.id)
                 return ex
-        ex = loader.pick(self.name, self.difficulty, self.seen)
+        try:
+            ex = loader.pick(self.name, self.difficulty, self.seen)
+        except loader.ExerciseUnavailable:
+            # Not hard-coded: preset mode also falls back to the generator for such functions.
+            ex = self._generate() if self.mode == "preset" else None
+            if ex is None:
+                raise
         self.seen.add(ex.id)
         return ex
 
