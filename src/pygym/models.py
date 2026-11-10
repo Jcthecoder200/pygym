@@ -17,6 +17,10 @@ class Exercise:
     test_inputs: List[List[Any]]  # each item is the argument list for one test
     expected_outputs: List[Any] = field(default_factory=list)
     hint: str = ""
+    # Extra modules the student's code may import for this exercise (besides the sandbox defaults).
+    allowed_imports: List[str] = field(default_factory=list)
+    source: str = "preset"        # "preset" (bundled, human-reviewed) or "ai" (generated, unreviewed)
+    generator: str = ""           # for source "ai": which model made it, e.g. "ollama:qwen2.5:3b"
 
     @classmethod
     def from_dict(cls, d: dict) -> "Exercise":
