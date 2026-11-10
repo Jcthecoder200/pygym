@@ -1,0 +1,47 @@
+# Local notes and working files (never committed)
+temp/
+notes/
+*.local.md
+*.local.txt
+
+# Editor and tool settings
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
+.gemini/
+.cursor/
+.cursorrules
+.cursorignore
+.windsurf/
+.windsurfrules
+.aider*
+.continue/
+.codeium/
+.copilot/
+.github/copilot-instructions.md
+.vibe-wise/
+.orchestrator/
+.hermes/
+.specstory/
+*.prompt.md
+
+# Python build / cache artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Manim output (presentation team)
+media/
+
+# Generated output of experiments/ scripts
+experiments/out/
