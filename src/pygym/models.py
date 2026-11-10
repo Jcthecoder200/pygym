@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
-from typing import Any, List
+from typing import Any, List, Optional
 
 
 @dataclass
@@ -30,3 +30,15 @@ class GradeResult:
     # "ok" | "wrong_output" | "target_not_used" | "timeout" | "error"
     reason: str
     message: str = ""
+
+
+@dataclass
+class Response:
+    """What Session.handle() returns. A front-end only displays it and obeys the flags."""
+    text: str
+    # "pass" | "fail" | "hint" | "help" | "solution" | "exercise" | "refused" | "unknown" | "quit"
+    kind: str
+    quit: bool = False          # the front-end should close now
+    ask_reveal: bool = False    # ask the student whether to show the solution (after a failed :wq)
+    clear_code: bool = False    # a new exercise started: reset the code box / buffer
+    result: Optional[GradeResult] = None  # set for :w / :wq

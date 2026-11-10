@@ -1,10 +1,51 @@
-"""One learning session. The UI only ever talks to this object."""
+"""One learning session. The UI only ever talks to this object.
+
+All command rules live here (the "backbone"), so every front-end (text CLI, tkinter popup,
+anything later) behaves the same way. A front-end only:
+  1. collects the student's code and the command they chose,
+  2. calls  session.handle(command, code)  and
+  3. displays the returned Response and obeys its flags (quit / ask_reveal / clear_code).
+"""
 from __future__ import annotations
 
-from typing import Set
+import builtins
+from typing import List, Optional, Set, Tuple
 
 from . import grader, loader, progress
-from .models import Exercise, GradeResult
+from .models import Exercise, GradeResult, Response
+
+# The command table: one place for names and wording, shown by the intro screen.
+COMMANDS: List[Tuple[str, str]] = [
+    (":w", "check your code"),
+    (":wq", "check, then quit if it passes (if it fails you can reveal the solution)"),
+    (":q", "quit (refused if your code changed since the last :w or the last check failed)"),
+    (":q!", "quit and throw your code away"),
+    (":h", "hint"),
+    (":help", "the built-in's own documentation"),
+    (":s", "skip to another exercise"),
+    (":solution", "show the solution"),
+    (":intro", "show this list of commands again"),
+]
+COMMAND_NAMES = frozenset(name for name, _ in COMMANDS)
+# Short descriptions for tight spaces (the editor's start screen). Same commands as COMMANDS.
+SHORT = {":w": "check your code", ":wq": "check, then quit", ":q": "quit",
+         ":q!": "quit without checking", ":h": "hint", ":help": "the built-in's documentation",
+         ":s": "skip to another exercise", ":solution": "show the solution",
+         ":intro": "show this list again"}
+
+
+def commands_text() -> str:
+    """The command list as plain text (what :intro returns)."""
+    width = max(len(name) for name, _ in COMMANDS)
+    return "\n".join(f"{name.ljust(width)}  {desc}" for name, desc in COMMANDS)
+
+
+def _normalize(code: Optional[str]) -> str:
+    """Ignore trailing spaces and blank lines when deciding whether code changed."""
+    lines = [ln.rstrip() for ln in (code or "").splitlines()]
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
 
 
 class Session:
@@ -12,12 +53,77 @@ class Session:
         self.name = name
         self.difficulty = difficulty
         self.seen: Set[str] = set()
+        self.saved_code: Optional[str] = None  # the code at the last :w (None = never checked)
+        self.last_passed: Optional[bool] = None  # result of the last :w (None = never checked)
         self.exercise: Exercise = self._next()
 
     def _next(self) -> Exercise:
         ex = loader.pick(self.name, self.difficulty, self.seen)
         self.seen.add(ex.id)
         return ex
+
+    # ----- the command interface (used by every front-end) -------------------------------
+
+    def handle(self, command: str, code: Optional[str] = None) -> Response:
+        """Run one command against the student's current code.
+
+        code=None means "no new code": the code from the last :w is used (or "" if never checked).
+        Front-ends without a persistent code box (the line CLI, a Jupyter cell with only a command)
+        pass None instead of re-implementing this rule themselves.
+        """
+        cmd = command.strip()
+        if code is None:
+            code = self.saved_code or ""
+        if cmd == ":w":
+            return self._check(code, then_quit=False)
+        if cmd == ":wq":
+            return self._check(code, then_quit=True)
+        if cmd == ":q":
+            # 1. unchecked changes win: the new code might be right, so don't offer the solution yet
+            if self.is_dirty(code):
+                return Response("Unchecked changes: :w to check them, "
+                                "or :q! to quit without checking.", "refused")
+            # 2. the last check failed: stay and offer the solution, like a failed :wq
+            if self.last_passed is False:
+                return Response("Your last check didn't pass. "
+                                "Fix it and :w, :s to skip, or :q! to quit.",
+                                "refused", ask_reveal=True)
+            # 3. passed, or 4. nothing attempted yet
+            return Response("Bye!", "quit", quit=True)
+        if cmd == ":q!":
+            return Response("Bye! (code not checked)", "quit", quit=True)
+        if cmd == ":h":
+            return Response(self.hint(), "hint")
+        if cmd == ":help":
+            return Response(self.help(), "help")
+        if cmd == ":s":
+            self.skip()
+            return Response("Skipped. Here is another one.", "exercise", clear_code=True)
+        if cmd == ":solution":
+            return Response(self.solution(), "solution")
+        if cmd == ":intro":
+            return Response(commands_text(), "commands")
+        return Response(f"Unknown command '{cmd}'. Commands: {' '.join(n for n, _ in COMMANDS)}",
+                        "unknown")
+
+    def is_dirty(self, code: str) -> bool:
+        """True if the code changed since the last :w (empty code that was never checked is clean)."""
+        return _normalize(code) != _normalize(self.saved_code)
+
+    def _check(self, code: str, then_quit: bool) -> Response:
+        result = self.submit(code)
+        self.saved_code = code
+        self.last_passed = result.passed
+        if result.passed:
+            if then_quit:
+                return Response(f"Passed! {result.message}", "pass", quit=True, result=result)
+            return Response(f"Passed! {result.message} Type :s for another exercise or :q to quit.",
+                            "pass", result=result)
+        if then_quit:
+            return Response(f"Failed: {result.message}", "fail", ask_reveal=True, result=result)
+        return Response(f"Failed: {result.message}", "fail", result=result)
+
+    # ----- the building blocks (also used directly by the tkinter popup) -----------------
 
     def submit(self, code: str) -> GradeResult:
         result = grader.grade(code, self.exercise)
@@ -27,9 +133,18 @@ class Session:
     def hint(self) -> str:
         return self.exercise.hint or "No hint for this one. Re-read the question carefully."
 
+    def help(self) -> str:
+        target = getattr(builtins, self.exercise.target_function, None)
+        doc = target.__doc__ if target is not None else None
+        if not doc:
+            return f"No documentation available for '{self.exercise.target_function}'."
+        return doc.strip()
+
     def solution(self) -> str:
         return self.exercise.reference_solution
 
     def skip(self) -> Exercise:
         self.exercise = self._next()
+        self.saved_code = None
+        self.last_passed = None
         return self.exercise
