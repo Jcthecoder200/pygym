@@ -19,6 +19,7 @@ pip install -e .[dev]
 pytest
 python tools/validate_exercises.py          # check every exercise's reference solution
 python tools/validate_exercises.py --fill   # (re)compute expected_outputs from reference solutions
+python tools/validate_exercises.py --levels # list exercises whose reference differs from the level rules
 ```
 
 ## Layout

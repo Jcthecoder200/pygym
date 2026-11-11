@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 
 ## [Unreleased]
 ### Added
+- **Each level has a rule, checked on the reference solution's code** (`pygym.ai.levels`).
+  Beginner: one line (a comprehension or `x if c else y` is fine there), or a few
+  straight-line lines with no `if`, no `x if c else y`, no `for`/`while`, no
+  comprehension, no `match` (`and` / `or` are allowed). Intermediate: at least one loop (a
+  comprehension counts) and one condition (an `if` inside a comprehension counts), at most 20
+  logical lines. Advanced: a loop and a condition plus data structures or algorithms: 2
+  different markers, or 1 marker in 7+ logical lines (a dict or set it fills, `collections`,
+  `heapq`, `bisect`, a stack `.append` + `.pop`, nested loops, recursion, sorting with `key=`).
+  Only the student's function and the helpers it calls count; imports do not. A generated reply
+  that breaks the rule is rejected as repairable and the model is told what was missing ("too
+  simple for advanced: ... Make the task bigger, with the target as one step"); the progress
+  line says `too simple for the level`. The prompt's level text (`prompt.LEVEL_RULES`) is built
+  from the same rules (`levels.describe`, `levels.example_idea`). Saved exercises are only
+  reused as a fallback when they fit their level (`cache.fits_level`). Why: a level-3 `bin`
+  exercise was `return bin(number).replace('0b', '')`, simpler than the level-1 one.
+- **The bigger-task question.** A function too small for an advanced exercise on its own
+  (`TargetInfo.simple`: at most one input, a method's own value included, nothing optional, and
+  no longer call form in its documentation: `bin`, `abs`, `len`, `str.upper`...; not `sorted`,
+  `max`, `round`, `str.join`, `zip`, `numpy.cumsum`) is not moved to advanced without asking when
+  the AI writes its exercises. Menu level 3, `pygym bin --level 3`, `:level 3` and the level-up
+  to 3 ask "`bin` is too small for an advanced exercise on its own. Practise it inside a bigger
+  task (bin + loops, conditions and data structures)? [Y/n]". Yes: advanced exercises are bigger
+  tasks in which the function is one necessary step (`generate_exercise(..., bigger=True)`);
+  no: intermediate. The answer is remembered for the session (`:bigger yes|no` changes it);
+  until it is given the level stays below 3, so neither `:s` nor the prefetch writes an advanced
+  exercise. Hand-written exercises in preset mode are used as they are. New:
+  `Response.ask_bigger`, the `:bigger yes|no` answer command (`ARG_COMMANDS`),
+  `Session(..., bigger=None)`, `Session.question()`, `Session.bigger_prompt()`,
+  `Session.bigger_task`, `Session.asking_bigger`, `Session.is_simple`,
+  `Session.bigger_applies()`, `session.bigger_answer()`, `session.simple_target()`,
+  `menu.asks_bigger()`, `menu.start(..., input_fn=None)`. The line CLI, the editor (PROMPT mode,
+  `Editor.prompt_kind`), Jupyter and the menu ask it; tkinter: see docs/FRONTEND_GUIDE.md.
+- `python tools/validate_exercises.py --levels`: lists the hand-written exercises whose
+  reference does not follow the level rules (report only, exit code 0; 33 of 49 today).
+- Tests: `tests/test_ai_levels.py`, `tests/test_bigger_task.py` (160 new tests). The level rules
+  are off in other tests unless they use the `real_levels` fixture (conftest), so the older fake
+  one-line replies keep testing what they test.
+
 - **Exercises are set in real-world use cases of the function.** The first time a function is
   used, the model lists 6-8 short situations where a programmer would naturally reach for it
   (`numpy.cumsum` → "a bank account balance after each transaction", "rainfall so far this
@@ -206,6 +244,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   and no longer needs `END` to submit.
 
 ### Fixed
+- The starter code and the signature never show type hints (`def f(number: int) -> str:` came
+  through when the reply did not import `typing`): annotations are stripped from generated
+  references whenever they have any, and `Exercise.starter_code` drops them from any signature
+  (`models.plain_signature`), also for exercises saved by older versions.
 - **P0-1:** an exercise with missing or too few `expected_outputs` let any code pass. `grade()` now
   reports it as broken ("Use :s to skip it."), and the result loop checks that the number of
   outputs matches.

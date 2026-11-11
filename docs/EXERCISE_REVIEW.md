@@ -15,7 +15,8 @@ Run `exercise("<target>", <level>)` until the id appears (or read `src/pygym/dat
 Then check:
 
 1. The question is unambiguous and its example matches what the reference returns.
-2. The target is the natural tool (not forced). The level fits (1 = one line, 3 = needs thought).
+2. The target is the natural tool (not forced). The level fits (1 = one line, 3 = needs thought;
+   `--levels` below shows where the reference differs from the AI level rules).
 3. The tests cover normal cases and an edge case. A wrong but close solution fails at least one.
 4. No float equality traps. No answer depends on the order of a set or dict of strings.
 5. Returned values survive JSON: tuples become lists. The question says "list" when the checker
@@ -26,6 +27,25 @@ Then check:
 
 Machine checks (already done, rerun any time): `python tools/validate_exercises.py` and
 `python -m pytest tests/test_dataset.py`.
+
+### Level rules report (`--levels`)
+
+AI-generated exercises must follow fixed rules for each level (beginner: no if/else and no loop;
+intermediate: a loop and a condition; advanced: plus a data structure or algorithm; see
+[AI_MODE.md](AI_MODE.md#what-each-level-means)). Hand-written exercises are not held to them:
+a reviewer decides. To see which ones differ, run
+
+```
+python tools/validate_exercises.py --levels
+```
+
+It prints one line per exercise whose reference solution does not follow its level's rule, with
+what is missing (`LEVEL max-03 (3 advanced): no loop; no condition; no data structure or
+algorithm`), and a count at the end. It only reports: it never fails (exit code 0) and changes
+nothing. When it was added, **33 of 49** hand-written exercises differed (most level-2 and
+level-3 ones are one-line calls with `key=` or a comprehension, written when level 3 meant
+"tricky", not "algorithmic"). For each listed exercise, decide: keep it (and note why in the OK?
+column), move it to another level, or rewrite the reference.
 
 ## New exercises (44)
 

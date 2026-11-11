@@ -75,6 +75,8 @@ modes.
 4. It checks the answer **before you see it**:
    - the JSON has all fields, the reference solution parses and defines the function;
    - the reference really uses the target function and only allowed imports;
+   - the reference **fits the level** (see [What each level means](#what-each-level-means)): a
+     level-3 one-liner is rejected and the model is told what was missing;
    - the reference runs in the sandbox (see [The sandbox](#the-sandbox)) on every test input.
      Test inputs that crash are dropped; at least 3 must be left. If the code tries something
      the sandbox blocks (for example deleting a file outside its folder), it is rejected and
@@ -90,6 +92,73 @@ modes.
    "AI mode unavailable (Ollama is not running at http://localhost:11434)").
 
 The model's code only ever runs inside the sandbox, never inside pygym itself.
+
+### What each level means
+
+The level is a rule about the **reference solution's code**, checked on its syntax tree before it
+runs (`pygym/ai/levels.py`, one place for the prompt, the check and this page). Only the
+student's function counts, plus helper functions it defines and calls; imports and other
+top-level code do not. "Lines" are logical lines (statements: a `for` line, an `if` line, an
+assignment, a `return`...; the `def` line and a docstring are not counted).
+
+| Level | The reference solution must | Example idea in the prompt |
+|---|---|---|
+| 1 beginner | be **one line** (anything fits in that line, e.g. `return [x * x for x in nums]` or `return 'pos' if n > 0 else 'neg'`), or a few straight-line lines with **no** `if` statement, **no** `x if c else y`, **no** `for`/`while`, **no** comprehension or generator expression (they are loops), **no** `match`. `and` / `or` inside an expression are allowed: they combine values, they are not a branch the student writes. | apply the function to the input, with a little arithmetic or text |
+| 2 intermediate | have **a loop** (`for`/`while` or a comprehension) **and a condition** (an `if` statement, `x if c else y`, or an `if` inside the comprehension), in at most 20 lines | go through a list and keep, count or change the items that meet a condition |
+| 3 advanced | have a loop and a condition **and** use data structures or algorithms: **2 different markers**, or **1 marker in 7+ lines** | group records into a dict and sort the groups with `key=`, or walk the input with a stack |
+
+The markers: a dict or set the code builds or updates (a literal, `dict()`, `set()`, a `{...}`
+comprehension, `d[k] = ...`, `.add`, `.setdefault`), `collections` (`Counter`, `defaultdict`,
+`deque`...), `heapq`, `bisect`, a stack or queue (`.append` and `.pop`), nested loops, recursion
+(the function calls itself), sorting with `key=` (`sorted(..., key=)`, `.sort(key=)`).
+
+Why 7 lines with one marker: a recursive sum over nested lists (the hand-written
+`isinstance-03`) or grouping items into a dict by a key are real algorithms in 7 lines; a
+6-line counter of even and odd numbers in a dict is not.
+
+The prompt states the rule (from `levels.describe`) with one example idea, and says the reference
+must follow it. A reply that breaks it is sent back to the model with what was missing, e.g.
+"too simple for advanced: ... it has no loop; no condition; no data structure or algorithm. Make
+the task bigger, with the target as one step". The progress line says
+`try 1 rejected: too simple for the level`. Saved exercises are reused only if they fit their
+level too (older versions saved level-3 one-liners).
+
+Hand-written exercises are reviewed by people and are not checked against these rules.
+`python tools/validate_exercises.py --levels` lists the ones that differ (see
+[EXERCISE_REVIEW.md](EXERCISE_REVIEW.md)).
+
+### Functions too small for advanced: the bigger-task question
+
+Some functions can't make an advanced exercise by themselves: `bin(2)` is just `bin(2)`. pygym
+calls a function **simple** when its signature has at most one input (a method's own value
+counts: `str.upper` has one, `str.join` two) and nothing optional (no default value, no
+`*args`, no `[optional]` part), and its documentation shows no other way to call it with more
+arguments (`range(start, stop[, step])`). Simple: `bin`, `hex`, `oct`, `abs`, `len`, `chr`,
+`ord`, `str.upper`, `any`, `reversed`, `math.sqrt`, `statistics.median`. Not simple: `sorted`
+(`key`, `reverse`), `max` (`key`, `default`), `round` (`ndigits`), `numpy.cumsum` (`axis`,
+`dtype`), `str.join`, `zip` (many iterables, `strict`), `range`. A function whose signature
+Python can't read counts as not simple (`targets.TargetInfo.simple`).
+
+When you ask for **advanced** with a simple function (menu level 3, `pygym bin --level 3`,
+`:level 3`, or the automatic level-up to 3), pygym asks first:
+
+```
+`bin` is too small for an advanced exercise on its own.
+Practise it inside a bigger task (bin + loops, conditions and data structures)? [Y/n]
+```
+
+- **Yes** (Enter, `y`): advanced exercises are bigger tasks. The prompt says the function is one
+  necessary step of a larger realistic algorithmic task; the exercise must still call it and
+  still follows the advanced rule.
+- **No** (`n`): you stay at intermediate (from beginner, you get an intermediate exercise).
+- No answer (end of input, `Ctrl-C`, `Esc`, another word): nothing changes; `:level 3` asks again.
+
+The answer is remembered for the rest of the session: `:s` and later level-ups don't ask again.
+`:bigger yes` / `:bigger no` changes it later. Until you answer, the level stays below advanced,
+so neither `:s` nor the background prefetch writes an advanced exercise for such a function.
+This is about generated exercises only: a function with hand-written exercises in preset mode
+uses them as they are, at every level (`abs` in preset mode has no question). In preset mode, a
+simple function without hand-written exercises is generated, so it gets the question too.
 
 ### The next exercise is written while you work (prefetch)
 
@@ -283,7 +352,10 @@ To switch the extra layer off (for example if bubblewrap misbehaves), set
   and uses the function. They do not prove that the question text describes what the code
   does. The tests come from the code, so if the question and the code disagree, trust the
   examples and use `:solution` to see the code.
-- **Levels are a wish.** Small models mostly ignore beginner / intermediate / advanced.
+- **Levels are checked on the code, not on the difficulty of the idea.** A reference with a loop,
+  a condition and a dict passes as advanced even when the task is easy to think through, and a
+  clever one-liner never does. Small models often miss the rule on the first try; the repair
+  message usually fixes it, but it costs a model call (see the measurements below).
 - **Slow without a GPU.** On a laptop without a graphics card, one model call can take longer
   than the whole 20-second budget.
 - **"Did you really call it?" checks.** For built-ins and module functions, pygym checks while
@@ -422,3 +494,26 @@ that would have started after `:s`.
 **`think: false`:** qwen3.5:2b lists `thinking` in its capabilities. Asked for the `zip` use
 cases, it answered in 4.5 s (88 tokens, no thinking text). Before this change it timed out
 after 30 s.
+
+**7. Level rules and the bigger-task mode** (2026-11-11, Ollama, qwen2.5:1.5b, 20 s budget,
+fresh `PYGYM_HOME` with the saved `sorted` and `zip` use cases; `bin` got its use-case call,
+3.3 s). At most 12 model calls in total, so the later exercises got only one try.
+
+| Function | Level | Tries | Time | Valid? | Why rejected (in order) |
+|---|---|---|---|---|---|
+| `bin` (bigger task) | 3 | 2 | 17.7 s | no | imports `os` and reads a file (the use case was "encoding an audio file"); the repair repeated the same reply |
+| `sorted` | 3 | 3 of 4 (time) | 17.3 s | no | **too simple** (`return sorted(temps)`); **too simple** (a comprehension and `key=`, no condition); then it dropped `sorted` |
+| `zip` | 3 | 2 | 11.1 s | no | never called `zip` (`return defaultdict(list)`), twice |
+| `bin` | 1 | 1 | 5.8 s | yes | – : `return bin(number)[2:]`, one line, fits beginner |
+| `bin` | 2 | 1 | 6.4 s | no | never called `bin` |
+| `sorted` | 1 | 1 | 3.5 s | no | `names.sort()` with no `sorted` and no return |
+| `sorted` | 2 | 1 | 7.2 s | no | **too simple** (`return sorted(records, key=...)`: no loop, no condition) |
+
+The level check did its job: the three replies it rejected really were one-liners or nearly
+so, where the old prompt would have shipped them as level 2 and 3. But it raises the bar for a
+1.5B model: in this run no level-2 or level-3 exercise passed every check, and the repair
+message did not get the model to add a loop and a condition within the budget. With this
+model, intermediate and advanced exercises mostly come from saved exercises (reused only if
+they fit their level) or hand-written ones; a larger model (qwen2.5:3b or more) is the way to
+get new ones. The valid `bin` exercise still shows the older limit: its question says the
+input is between 0 and 16777215, but one test uses -5 (`'b101'`).

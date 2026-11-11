@@ -150,6 +150,7 @@ New tests: `tests/test_session.py`, `tests/test_cli.py`.
 | `:s` | Skip | loads another exercise (at `Session.level`), forgets the saved code; may update `Session.notice`. In AI mode this can take up to 20 s: use `start(":s")` to show a progress bar | `kind="exercise"`, `clear_code=True`; or `kind="refused"` (no `clear_code`) when no other exercise exists right now (a function without presets whose generation failed) |
 | `:solution` | Solution | — (solving this exercise afterwards no longer counts towards the next level; so does `session.solution()`) | `kind="solution"` |
 | `:level` / `:lv` | Level | alone: the level and the count (`Level: beginner ●○○ — 2 of 3 solved to level up. :level 1-3 to change`). `:level 2`, `:level intermediate`, `:lv i` (also `b`, `a`): sets the level, resets the count, loads a new exercise at once (progress bar in AI mode) | alone / same level: `kind="level"`; a new level: `kind="exercise"`, `clear_code=True`; not a level: `kind="refused"` (`'x' is not a level. Use :level 1, 2 or 3 (or b, i, a).`) |
+| `:bigger yes` / `:bigger no` | (the answer to the [Y/n] question, not a button) | the answer to the bigger-task question (see [Bigger tasks](#bigger-tasks-the-ask_bigger-question)); remembered for the session. Not in `COMMANDS` / `:intro`: front-ends send it | `kind="exercise"`, `clear_code=True` when it loads one (yes after `:level 3`; no from beginner); else `kind="level"`; `kind="refused"` for another word, or for a function that is not too small |
 | `:intro` | Commands / ? | the list of all commands (`session.commands_text()`) | `kind="commands"` |
 | `:out` | Results | the results of the last check again (the editor: opens / closes its results window) | `kind="results"`, `result=` the last `GradeResult` (text `Last check: ...`, or a note that the code changed since); before any check `result=None` and the text `Nothing checked yet. :w to check your code.` |
 
@@ -160,7 +161,8 @@ wording matches the CLI.
 **Which lines are commands** (line CLI, and anything else that mixes code and commands): only a
 line that is a command *as a whole*, after trimming spaces. Use `session.is_command_line(line)`:
 `:` + letters/`!` (`:wq`, `:xyz` → unknown command, still not code), or a command that takes an
-argument (`session.ARG_COMMANDS`: `:level`, `:lv`) followed by exactly one word (`:level 2`).
+argument (`session.ARG_COMMANDS`: `:level`, `:lv`, `:bigger`) followed by exactly one word
+(`:level 2`, `:bigger yes`).
 `:level 2 3`, `x = :level`, `:w 3` and a dict continuation line `    : 1}` are code. The editor
 sends whatever was typed on its `:` line; the Jupyter magic sends the text after `%pygym`.
 
@@ -174,8 +176,12 @@ class Response:
     quit: bool = False        # close the window now
     ask_reveal: bool = False  # ask "Reveal the solution?" (yes -> show session.solution())
     clear_code: bool = False  # new exercise: redraw the question and reset the code box
+    ask_bigger: bool = False  # ask session.bigger_prompt() [Y/n]; send the answer as a command
     result: GradeResult | None = None   # set for :w / :wq, and for :out after a check
 ```
+
+Order in which a front-end obeys the flags: show the text, `ask_reveal`, `clear_code`, `quit`,
+then `ask_bigger` (its answer is the next command, whose own Response is obeyed the same way).
 
 The UI decides *how* things look (colours, popups, icons). It must not decide *whether*
 something is allowed: always ask `handle()`.
@@ -420,6 +426,64 @@ def poll(job):
 | exercise panels | unchanged: `zip  ●●○  level 2` is the exercise's own level |
 | tkinter | suggestion: `style.level_badge(session)` in the title or status label, refreshed after each check |
 
+### Bigger tasks (the `ask_bigger` question)
+
+A function too small for an advanced exercise on its own (`bin`, `abs`, `str.upper`;
+`session.simple_target(name)`, `Session.is_simple`) whose exercises the AI writes
+(`Session.bigger_applies()`) is not moved to advanced without asking. Three ways in:
+
+| When | Response | Level meanwhile |
+|---|---|---|
+| `:level 3` (`:lv a`, `start_next(3)`) | `kind="level"`, `ask_bigger=True`, text `` `bin` is too small for an advanced exercise on its own. `` | unchanged, nothing is generated |
+| the level-up from 2 to 3 (a passing `:w`) | `kind="pass"`, `ask_bigger=True`, text `Passed! ... `` `bin` alone is too small for advanced. `` | stays 2 (count back to 0) |
+| `Session(name, 3)` | `session.question()` returns `Response(kind="level", ask_bigger=True)` right after start (None otherwise) | starts at 2 |
+
+Then the front-end asks `session.bigger_prompt()`:
+`Practise it inside a bigger task (bin + loops, conditions and data structures)? [Y/n] `
+(`session.BIGGER_PROMPT`; the editor shows `Practise bin inside a bigger task? [Y/n] ` when the
+full one does not fit). It turns the answer into the next command with
+`session.bigger_answer(text)`: Enter / `y` / `yes` → `":bigger yes"`, `n` / `no` →
+`":bigger no"`, anything else and `None` (EOF, Ctrl-C, Esc) → `None`: send nothing, show
+`session.NOT_ANSWERED`, the level stays as it is and `:level 3` asks again. The answer goes
+through `handle()` / `start()` like any command, on its own (the per-line rule is unchanged), so
+`needs_wait(":bigger yes")` says whether it writes an exercise (show the progress bar then).
+
+- yes: after `:level 3` or at start, an advanced exercise is written at once
+  (`ai.generate_exercise(..., bigger=True)`: the prompt makes the function one step of a bigger
+  task); after a level-up only the level changes (`Level up! advanced ●●● (bin inside bigger
+  tasks). :s for the next exercise.`).
+- no: `Staying at intermediate ●●○: ...` (from beginner, an intermediate exercise is loaded).
+- The answer is `Session.bigger_task` (None / True / False), kept for the session: `:s` and later
+  level-ups never ask again; `:level 3` after "no" answers `Staying at intermediate ... (:bigger
+  yes to change)`. `Session(..., bigger=True|False)` passes an answer the front-end got before
+  the session existed (the menu asks before writing the first exercise).
+- `Session.asking_bigger` is True while a question waits. The prefetch writes at `Session.level`,
+  which stays below 3 until "yes", so nothing advanced is written before the answer.
+
+| Front-end | How it asks |
+|---|---|
+| line CLI | `input_fn(session.bigger_prompt())` after the Response; at start after the exercise |
+| editor | PROMPT mode with `prompt_kind="bigger"`: `y` / Enter = yes, `n` = no, other keys (Esc) = not answered, Ctrl-C = not answered |
+| Jupyter | `input(session.bigger_prompt())`, also in `jupyter.start()` |
+| menu / `pygym bin --level 3` | `menu.start()` asks before the session exists (`menu.asks_bigger(choice)`), then `Session(..., bigger=answer)`; not answered → back to the menu |
+| tkinter | not wired; see the how-to below |
+
+#### tkinter how-to: the bigger-task question
+
+```python
+def obey(r):
+    ...                                    # the usual: text, ask_reveal, clear_code, quit
+    if r.ask_bigger:
+        answer = messagebox.askyesnocancel("pygym", r.text + "\n\n" + session.bigger_prompt())
+        if answer is not None:             # Cancel = not answered: send nothing
+            run(":bigger yes" if answer else ":bigger no")   # may write an exercise: start()
+
+# after show(session.exercise) at start:
+q = session.question()
+if q is not None:
+    obey(q)
+```
+
 ## Terminal editor (Linux/macOS)
 
 `src/pygym/editor.py`. A small modal editor inspired by Neovim. The terminal handling is
@@ -546,8 +610,10 @@ The whole screen is drawn again after every key. It uses the alternate screen (l
   `session.saved_code` to that text. So `:q` before typing anything is allowed.
 - `:w`, `:wq`, `:q` ... are sent as `session.handle(":" + typed, "\n".join(lines))`. Any
   other `:xyz` gets Session's "Unknown command" answer.
-- The editor only shows the `Response` and obeys `quit`, `ask_reveal` and `clear_code`
-  (`:s` loads the new question and resets the buffer and `saved_code`).
+- The editor only shows the `Response` and obeys `quit`, `ask_reveal`, `ask_bigger` and
+  `clear_code` (`:s` loads the new question and resets the buffer and `saved_code`). Both
+  questions use PROMPT mode; `Editor.prompt_kind` (`"reveal"` / `"bigger"`) says which, and
+  `Editor.prompt_text(width)` what the bottom line shows.
 - One-line answers go to the bottom line (`Hint: ` before hints; `✓ `, `✗ ` or `! ` before
   pass, fail and refused). `help`, `solution` and anything longer than the screen width
   (counting that icon) open the pager.
@@ -645,7 +711,9 @@ How it works:
   an intro panel with the `%%pygym` instructions and an example cell, then the exercise panel.
 - Hints and docs are panels, `Solution:` is followed by the highlighted code, one-line answers
   get an icon (`✓ Passed! ...`, `✗ Failed: ...`, `! ...`). If `ask_reveal` is set it asks
-  `Reveal the solution? [y/N]` with `input()`. After `:s` it prints the new question. On quit it
+  `Reveal the solution? [y/N]` with `input()`; if `ask_bigger` is set it asks
+  `session.bigger_prompt()` with `input()` and runs the answer as the next command (also right
+  after `exercise()` for a level-3 start). After `:s` it prints the new question. On quit it
   prints `Session ended.`; later magics say `No active exercise. Run exercise("zip") first.`
 - The cell code is only graded, not run in the notebook.
 - Errors are printed, never raised into the notebook.
