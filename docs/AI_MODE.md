@@ -52,10 +52,27 @@ modes.
 ## How it works
 
 1. pygym reads the function's documentation and signature (for example `statistics.median`).
-2. It asks the model for one exercise as JSON: a question, a function name, a reference
-   solution, 4 to 6 test inputs and a hint. A random story ("a weather station", "a quiz
-   game"...) and focus make each exercise different.
-3. It checks the answer **before you see it**:
+2. **Use cases first.** The first time a function is used, pygym asks the model for 6 to 8 short
+   real-world situations where a programmer would naturally reach for it (for `numpy.cumsum`:
+   "a bank account balance after each transaction", "rainfall so far this month"...). They are
+   checked (non-empty text, at most 120 characters, no duplicates, at least 3 left) and saved in
+   `~/.pygym/generated/usecases/<function>.json`. This call gets its own small slice of the
+   time budget (at most 8 s and at most 40 % of it); the progress bar says
+   `finding real-world uses`. If it fails, this exercise is written without a given situation
+   ("a realistic everyday task where `<function>` is the natural tool") and the next exercise
+   asks again.
+3. It asks the model for one exercise as JSON: a question, a function name, a reference
+   solution, 4 to 6 test inputs and a hint. The exercise is set in **one of the use cases**,
+   taking turns (one never used yet, else the one used longest ago). The prompt says the
+   situation must be one where the function is the natural tool, and the question must explain
+   the inputs and the output and **state every rule the solution uses (no hidden rules)**.
+   Why: the old prompt picked one of 30 fixed themes at random, with no link to the function.
+   For `numpy.cumsum` the model wrote a "best plant watering schedule" exercise whose solution
+   counted 'morning', 'afternoon' and 'evening', rules the question never mentioned. A use case
+   teaches which problems the function solves. The old "focus" list (data shapes such as
+   "working with strings" or "a list of pairs") was removed too: it often fought the situation
+   and the function's natural input. Variety now comes from the use cases, depth from the level.
+4. It checks the answer **before you see it**:
    - the JSON has all fields, the reference solution parses and defines the function;
    - the reference really uses the target function and only allowed imports;
    - the reference runs in the sandbox (see [The sandbox](#the-sandbox)) on every test input.
@@ -65,14 +82,47 @@ modes.
    - the **expected results come from running the reference solution**, never from the model;
    - the results are not all the same, and they are the same when run a second time;
    - the reference passes the normal grader, like a student solution would.
-4. If a check fails, pygym tells the model what was wrong and asks again (up to 4 times in
-   about 20 seconds).
-5. Good exercises are saved in `~/.pygym/generated/<function>.json`. When the model is slow,
+5. If a check fails, pygym tells the model what was wrong and asks again (up to 4 times in
+   about 20 seconds). A fresh try (not a repair) takes the next use case.
+6. Good exercises are saved in `~/.pygym/generated/<function>.json`. When the model is slow,
    wrong or not running, pygym reuses a saved one you have not seen yet.
-6. If nothing works, pygym uses a preset exercise and tells you why (for example
+7. If nothing works, pygym uses a preset exercise and tells you why (for example
    "AI mode unavailable (Ollama is not running at http://localhost:11434)").
 
 The model's code only ever runs inside the sandbox, never inside pygym itself.
+
+### The next exercise is written while you work (prefetch)
+
+As soon as an exercise is shown, pygym starts writing the next one in the background, at the
+level `:s` would use. This happens in AI mode, and in preset mode for functions without
+hand-written exercises (those are generated too). By the time you type `:s` it is usually ready,
+and `:s` is instant. If it is still being written, `:s` shows the progress bar of that same
+request (no second request is sent). `Ctrl-C` stops waiting, but the background request goes on
+and the next `:s` picks it up. If it failed, you get the usual fallback (a saved or hand-written
+exercise).
+
+- Only one is written at a time. A level change (`:level 2`, or the automatic level-up after 3
+  solved exercises) throws away the one written for the old level and starts a new one. The new
+  request waits until the thrown-away one has finished, so pygym never has two requests at the
+  model at once.
+- It is not added to "seen" until it is shown. It never slows your own `:w` checks: they run in
+  the sandbox, not the model, and nothing makes them wait for each other.
+- Quitting (`:q`, `:q!`, `:wq`, `Ctrl-C`, end of input) cancels it. A model request that was
+  already sent may finish in the background; its answer is thrown away. It never keeps pygym
+  running.
+- Turn it off with `"prefetch": false` in `config.json` (`pygym --status` shows the setting).
+  With it off, `:s` waits for the model as before (5-30 s).
+
+### Thinking models (qwen3, qwen3.5, deepseek-r1...)
+
+Some models "think" before they answer: they write a long hidden reasoning first. With a 20 s
+budget they spent the whole time thinking: qwen3.5:2b timed out. pygym now asks Ollama once per
+model and per run (`/api/show`, its `capabilities`) and sends `"think": false` to models that
+list `thinking`. Measured: qwen3.5:2b then answers in about 4.5 s with no thinking text. Other
+models get no `think` field. Ollama 0.18.1 also accepts `"think": false` for a non-thinking
+model (tried with qwen2.5:1.5b), but an older server may not. If a server refuses the field
+(HTTP 400 about `think`), the request is sent once more without it. The `openai` provider never
+sends a `think` field.
 
 ## Settings
 
@@ -84,6 +134,7 @@ Settings live in `~/.pygym/config.json` (or `$PYGYM_HOME/config.json`):
 | `provider` | `"ollama"` | `"ollama"` or `"openai"` (any OpenAI-compatible server) |
 | `model` | `"qwen2.5:1.5b"` | the model name for that provider |
 | `base_url` | `"http://localhost:11434"` | where the server is |
+| `prefetch` | `true` | write the next AI exercise in the background while you work |
 
 Environment variables:
 
@@ -106,7 +157,7 @@ structured output (`response_format` of type `json_schema`).
 - With the `openai` provider, the **prompt** is sent to that server: the function's name, its
   documentation and short descriptions of earlier exercises for that function. **Your code is
   never sent.** If `base_url` points to a cloud service, that service sees the prompt.
-- Your progress, saved exercises and the last 30 rejected model replies
+- Your progress, saved exercises, the saved use cases and the last 30 rejected model replies
   (`~/.pygym/generated/rejected.jsonl`, to help improve the prompt) stay in `~/.pygym`.
 
 ## Which functions work
@@ -306,7 +357,8 @@ cache ahead of time.
 | qwen2.5:1.5b | 20 s | map (2), itertools.chain (1), max (3), str.split (1) | 3 of 4 | 4.7–20 s |
 
 Failures were timeouts or crashing reference code. qwen3.5:2b did not answer within 30 s on this
-GPU (shared with other programs). Results swing a lot between runs, so a few dozen requests per
+GPU (shared with other programs) because it spent the time thinking. Now that `"think": false`
+is sent, it answers in seconds (see 6). Results swing a lot between runs, so a few dozen requests per
 model are needed before choosing a default. Generated exercises are cached in
 `PYGYM_HOME/generated/`: when a later request for the same function fails, the cached one is
 reused, so repeat requests succeed more often than the first one.
@@ -328,3 +380,45 @@ So 1 of 7 requests gave a usable exercise. As before, the checks caught every br
 and no reply touched anything outside its temporary folder. One sandbox run costs about 21 ms
 for a plain exercise (a bare `python -c pass` takes 14 ms) and about 150 ms for a numpy one
 (numpy's import); bubblewrap adds about 3-5 ms.
+
+**6. Use cases first, prefetch and `think: false`** (2026-11-11, Ollama 0.18.1, qwen2.5:1.5b,
+level 1, fresh `PYGYM_HOME`). Only 12 model calls were allowed, so each exercise got **one
+attempt** instead of the usual 4.
+
+Use cases: one call per function, 1.8–3.1 s each, all passed the checks:
+
+| Function | Use cases from the model |
+|---|---|
+| `numpy.cumsum` | calculating total rainfall over days · summing up the hours worked by employees · computing cumulative sales for marketing analysis · adding up scores on a quiz round-by-round · totalizing marks scored across all subjects in an exam · cumulating temperature highs for daily weather forecast |
+| `zip` | matching customer orders with products · organizing meeting times for group tasks · concatenating ingredients in a recipe list · combining survey responses by age and gender · grouping email addresses into neighborhoods · sorting documents by author and creation date |
+| `statistics.median` | determine the middle temperature for an average daily weather forecast · find the median age of employees at a company · calculate the midpoint price in a sales report · identify the central value in a set of test scores · estimate the typical travel time to school by calculating medians from past records · determine the balance point for average income distribution |
+| `str.join` | concatenating names into a full name · joining elements of an array to form a string for a URL parameter · combining words separated by dashes for a product code · merging items with spaces for a file path · stitching together instructions in a recipe book · linking notes using semicolons for a project log |
+| `sorted` | organizing student names alphabetically · arranging scores from highest to lowest for individual rankings · sorting temperatures by ascending order from coldest to hottest · displaying the earliest flight times on a train timetable · presenting entries in chronological order of a shopping list · grouping emails received by date descending · organizing books by author's last name and then first name |
+
+For `cumsum`, `median`, `str.join` and `sorted` most items fit. For `zip` only about half do:
+the 1.5B model confuses it with sorting and grouping.
+
+One exercise each (both `sorted` exercises come from the line CLI run below):
+
+| Function | Use case | Time | Valid? | Does the question state every rule its reference uses? |
+|---|---|---|---|---|
+| `numpy.cumsum` | cumulating temperature highs for daily weather forecast | 5.1 s | no: the code crashed (`float('25°C')`) | – |
+| `zip` | sorting documents by author and creation date | 7.4 s | no: the code never called `zip` | – |
+| `statistics.median` | estimate the typical travel time to school… | 4.5 s | yes | no: it never says the input is a list of `{"name", "time"}` records |
+| `str.join` | joining elements of an array … for a URL parameter | 5.4 s | yes | no: the `separator` parameter is never mentioned |
+| `sorted` (CLI, first) | presenting entries in chronological order of a shopping list | 3.9 s | yes | yes: "accepts a list of strings … sorts them in alphabetical order" |
+| `sorted` (CLI, prefetched) | displaying the earliest flight times on a train timetable | 7.3 s | yes | no: it never says the input is a list of `{"number", "time"}` dicts sorted by `time` |
+
+The stories now fit the function: no more plant watering for `cumsum`. But with a single try, a
+1.5B model still often leaves out the shape of the input. In all three weak questions, one
+parameter of the reference (`records`, `separator`, `flights`) is not described at all.
+
+**The line CLI with prefetch** (`Session("sorted", 1, mode="ai")` and `ui.run_text`, scripted
+input `:s` then `:q!`): the first exercise took 4.1 s. The prefetch started 0.01 s after the
+exercise was shown and took 7.3 s. `:s` was sent 20 s after the exercise was shown and **took
+0.001 s** (before: 5–30 s). To stay within the call budget, the test switched off the prefetch
+that would have started after `:s`.
+
+**`think: false`:** qwen3.5:2b lists `thinking` in its capabilities. Asked for the `zip` use
+cases, it answered in 4.5 s (88 tokens, no thinking text). Before this change it timed out
+after 30 s.

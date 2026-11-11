@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 
 ## [Unreleased]
 ### Added
+- **Exercises are set in real-world use cases of the function.** The first time a function is
+  used, the model lists 6-8 short situations where a programmer would naturally reach for it
+  (`numpy.cumsum` → "a bank account balance after each transaction", "rainfall so far this
+  month"). They are checked (non-empty, at most 120 characters, no duplicates, at least 3) and
+  saved in `PYGYM_HOME/generated/usecases/<target>.json`. Every exercise uses one that was not used
+  recently, taking turns. The exercise prompt says the situation must be one where the function
+  is the natural tool, and the question must explain the inputs and output and state every rule
+  the solution uses (no hidden rules). The use-case call has its own slice of the budget (at most
+  8 s and 40 %) and a new progress stage `ideas` ("finding real-world uses"). If it fails, the
+  exercise is written without a given situation and the next exercise asks again. New module
+  `pygym.ai.usecases` (`SCHEMA`, `parse`, `load`, `fetch`, `pick`).
+- **Prefetch: the next exercise is written while the student works.** In AI mode, and in preset
+  mode for functions without presets, `Session` starts generating the next exercise in a
+  background (daemon) thread as soon as one is shown, at the level `:s` would use. `:s` takes it
+  at once. If it is still running, `start(":s")` returns a Job that follows the same work (its
+  progress, no second request), and cancelling that Job keeps the prefetch. A failed prefetch
+  gives the usual fallback. A level change (`:level`, level-up) throws away a prefetch for the
+  old level and starts a new one. There is only one at a time, and a new request waits for a
+  thrown-away one, so there is never more than one model request. The prefetched exercise is not
+  in `seen` until shown. New: `Session(..., prefetch=None)`, `Session.close()` (called by
+  quitting commands, `ui.run()` and `jupyter.start()` for the session it replaces),
+  `Session.next_ready`, `Job(follow=other)`, `Job.join()`. `session.skip()` uses the prefetch.
+- `config.Settings.prefetch: bool = True` (`"prefetch": false` turns it off); `pygym --status`
+  shows a `prefetch` row.
+- **Thinking models answer in seconds.** The Ollama provider asks `/api/show` once per model per
+  process. If `capabilities` lists `thinking` (qwen3, qwen3.5...), it sends `"think": false`;
+  other models get no `think` field. If a server answers HTTP 400 about `think`, the request is
+  repeated without it and the model is remembered as non-thinking. A 404 from `/api/show` reports
+  "model not installed" right away. Measured: qwen3.5:2b answers in 4.5 s (it used to time out
+  after 30 s). The OpenAI-compatible provider is unchanged.
+- Tests: `tests/test_ai_usecases.py`, `tests/test_prefetch.py`, and the `think` tests in
+  `tests/test_ai_providers.py` (57 new tests). `tests/conftest.py` keeps prefetch off and gives
+  every target fixed use cases unless a test asks for the real ones (fixtures `real_usecases`,
+  `real_prefetch_setting`), so the fake provider's queued replies go to the exercise under test.
 - **A progress bar while the AI writes the next exercise** (`:s`, `:level 2` in AI mode), so
   pygym never looks frozen. A model gives no progress of its own, so the bar fills against the
   20 s budget and the text names the try: `⠙ writing exercise · try 2 of 4 · 7 s`, `try 1
@@ -132,6 +166,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   Windows layer with a fake `msvcrt`), Jupyter and the styles (186 tests in total).
 
 ### Changed
+- The exercise prompt no longer picks one of 30 fixed themes (`prompt.SCENARIOS`) at random. A
+  theme unrelated to the function led to exercises like a "plant watering schedule" for
+  `numpy.cumsum` with rules the question never stated. The `FOCUS` list (data shapes such as
+  "working with strings") is gone too: it often fought the use case. `build_messages(info,
+  level, use_case=..., avoid=..., repair=...)` replaces `scenario=` / `focus=`. A fresh retry
+  takes the next use case; a repair keeps it. The few-shot example now states its tie rule.
+- The Ollama provider sends `/api/show` before the first chat with a model (once per process).
 - `Session(name, difficulty=None)` (and `exercise(name)`) now starts at level 1 instead of a
   random level: levels need a starting point. `session.difficulty` reads `session.level`.
 - The menu shows the progress bar instead of a spinner while the first exercise is written;

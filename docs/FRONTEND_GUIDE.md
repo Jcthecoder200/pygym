@@ -284,6 +284,8 @@ job.wait(0.1)     # block up to 0.1 s; True when done
 resp = job.result()   # call once job.done: applies the new exercise, returns the Response
 ```
 
+With prefetch on (the default), `:s` is usually instant: see "Prefetch" below.
+
 - Only a command that loads an **AI-written** exercise runs in the background. Every other
   command, and every preset exercise, is done at once (`job.done` is `True` straight away), so
   `if not job.done: show the bar` shows nothing for presets. `session.needs_wait(command)` tells
@@ -301,16 +303,50 @@ resp = job.result()   # call once job.done: applies the new exercise, returns th
   on_progress=callback)` reports to `callback`; the menu runs it in a `Job` too
   (`Job(lambda report: Session(..., on_progress=report))`).
 
+### Prefetch: the next exercise is written while the student works
+
+When the AI writes the exercises (AI mode, or preset mode for a function without presets),
+`Session` starts writing the **next** one in a background thread as soon as an exercise is set:
+in the constructor and after every `:s` / `:level`. It uses the level `:s` would use. A front-end
+does not have to do anything to get it. What changes for you:
+
+- **`start(":s")` is usually done at once** (`job.done` is `True`): the prefetched exercise is
+  applied by `job.result()` like any other. Your existing `if not job.done: show the bar` code
+  shows nothing then.
+- **If it is still being written**, `start(":s")` returns a Job that **follows that same work**:
+  `job.progress` and `job.elapsed` are the prefetch's (the bar starts part-filled and the time is
+  the real time so far). No second model request is sent. `job.cancel()` only stops waiting: the
+  prefetch keeps running and the next `:s` follows it again. `handle(":s")` blocks on it.
+- `session.next_ready` is `True` when `:s` will be instant. `session.needs_wait(":s")` is `False`
+  then (Jupyter uses this to skip the progress line).
+- A level change (`:level 2`, or the level-up in a passing `:w`) throws away a prefetch written
+  for the old level and starts a new one. Only one prefetch runs at a time, and a new one waits
+  until a thrown-away request has finished (one model request at a time).
+- The prefetched exercise is not in `session.seen` until it is shown. The worker never changes
+  the session (same rule as every Job). `:w` checks are not blocked by it: they run in the
+  sandbox, not the model, and nothing serialises the two.
+- **Ending a session:** `session.close()` cancels the prefetch (and a pending job). A command
+  that quits (`:q`, `:q!`, a passing `:wq`) calls it itself, and `ui.run()` calls it when the
+  window returns (also on Ctrl-C or end of input). `jupyter.start()` closes the session it
+  replaces. A front-end that does not go through `ui.run()` must call `session.close()` itself
+  when the window closes. The threads are daemons, so an unfinished model request never keeps
+  the program alive; its answer is thrown away.
+- **Setting:** `config.Settings.prefetch` (bool, default `True`; `"prefetch": false` in
+  `config.json` turns it off). `pygym --status` shows a `prefetch` row; there is no menu key.
+  `Session(..., prefetch=False)` overrides the setting (`None` = the setting).
+- `session.skip()` (used by the tkinter popup) takes the prefetched exercise too.
+
 **The progress event** (from `pygym.ai.generate_exercise(..., on_progress=callback)`, the
 engine's only new parameter; `Job.progress` before the first event is `session.STARTING`):
 
 ```python
 {"attempt": 2, "max_attempts": 4, "elapsed": 7.1, "budget": 20.0,
- "stage": "asking" | "checking" | "rejected" | "done" | "fallback", "detail": "..."}
+ "stage": "ideas" | "asking" | "checking" | "rejected" | "done" | "fallback", "detail": "..."}
 ```
 
 | stage | when | text (`style.progress_text(event, job.elapsed)`) |
 |---|---|---|
+| `ideas` | (`attempt` 0) only the first time a function is used: the model lists its real-world use cases, at most 8 s of the budget | `finding real-world uses · 1 s` |
 | `asking` | try n is sent to the model | `writing exercise · try 2 of 4 · 7 s` |
 | `checking` | its reply is validated (the sandbox runs it) | `checking exercise · try 2 of 4 · 9 s` |
 | `rejected` | the reply was not usable; `detail` says why in a few words (`engine.short_reason`) | `try 1 rejected: crashed on its tests · 4 s` |
