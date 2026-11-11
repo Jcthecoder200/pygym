@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
-from typing import Callable, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 API_KEY_ENV = "PYGYM_API_KEY"
 
@@ -52,12 +53,50 @@ def _http(method: str, url: str, body: Optional[dict], headers: dict, timeout: f
         raise ProviderError(f"no usable answer from {url} ({type(e).__name__})") from e
 
 
+# Does a model "think" before answering (qwen3, qwen3.5, deepseek-r1...)? Asked once per server
+# and model per process with /api/show; True / False. Missing = not known yet.
+_thinking: Dict[Tuple[str, str], bool] = {}
+
+
+def _think_error(error: ProviderError) -> bool:
+    """An HTTP 400 that complains about the "think" field (a server or model without it)."""
+    text = str(error)
+    return "HTTP 400" in text and "think" in text.lower()
+
+
 class OllamaProvider(Provider):
+    """A thinking model spends its whole budget thinking unless told not to, so chat() sends
+    "think": false to models whose /api/show capabilities include "thinking". Other models get
+    no "think" field at all (Ollama 0.18 accepts false for them too, but an older server may
+    not). If the server still answers HTTP 400 about "think", the call is repeated once without
+    it and the model is remembered as non-thinking."""
     name = "ollama"
 
     def __init__(self, model: str, base_url: str = "http://localhost:11434"):
         self.model = model
         self.base_url = base_url.rstrip("/")
+
+    def thinks(self, timeout: float = 2.0) -> Optional[bool]:
+        """True if the model can think (and so needs "think": false), False if not, None when
+        the server could not be asked (not remembered: asked again next time). Raises
+        ProviderError only when the server says the model is not installed."""
+        key = (self.base_url, self.model)
+        if key in _thinking:
+            return _thinking[key]
+        try:
+            info = _http("POST", f"{self.base_url}/api/show", {"model": self.model}, {},
+                         min(timeout, 2.0))
+        except ProviderError as e:
+            if "HTTP 404" in str(e) and "not found" in str(e):
+                raise ProviderError(f"model '{self.model}' is not installed "
+                                    f"(run: ollama pull {self.model})") from e
+            return None  # chat() reports the real problem
+        except Exception:  # noqa: BLE001
+            return None
+        caps = info.get("capabilities") if isinstance(info, dict) else None
+        # A server without "capabilities" (older than Ollama 0.6) also predates thinking models.
+        _thinking[key] = isinstance(caps, list) and "thinking" in caps
+        return _thinking[key]
 
     def ping(self, timeout: float = 0.5) -> Tuple[bool, str]:
         try:
@@ -78,8 +117,19 @@ class OllamaProvider(Provider):
             options["seed"] = seed
         body = {"model": self.model, "stream": False, "format": schema, "options": options,
                 "keep_alive": "10m", "messages": messages}
+        started = time.monotonic()
+        if self.thinks(timeout):
+            body["think"] = False
+        timeout = max(0.1, timeout - (time.monotonic() - started))  # /api/show is in the budget
         try:
-            reply = _http("POST", f"{self.base_url}/api/chat", body, {}, timeout)
+            try:
+                reply = _http("POST", f"{self.base_url}/api/chat", body, {}, timeout)
+            except ProviderError as e:
+                if "think" not in body or not _think_error(e):
+                    raise
+                _thinking[(self.base_url, self.model)] = False
+                del body["think"]
+                reply = _http("POST", f"{self.base_url}/api/chat", body, {}, timeout)
         except ProviderError as e:
             text = str(e)
             if "HTTP 404" in text and "not found" in text:

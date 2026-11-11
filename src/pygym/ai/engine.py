@@ -4,14 +4,13 @@ from __future__ import annotations
 import os
 import random
 import time
-from collections import deque
 from dataclasses import dataclass
-from typing import Callable, Deque, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from .. import config
 from ..models import Exercise
-from . import cache
-from .prompt import FOCUS, SCENARIOS, build_messages, schema_for
+from . import cache, usecases
+from .prompt import build_messages, schema_for
 from .providers import ProviderError, get_provider
 from .targets import TargetInfo, UnknownTarget, resolve
 from .validate import InvalidExercise, to_exercise
@@ -41,7 +40,6 @@ class AIStatus:
 
 
 _status_cache: Dict[Tuple[str, str, str], Tuple[float, AIStatus]] = {}
-_recent_scenarios: Deque[str] = deque(maxlen=len(SCENARIOS) // 2)
 
 
 def _turned_off() -> bool:
@@ -79,13 +77,6 @@ def available() -> bool:
         return status().ok
     except Exception:  # noqa: BLE001
         return False
-
-
-def _scenario(rng: random.Random) -> str:
-    choices = [s for s in SCENARIOS if s not in _recent_scenarios] or SCENARIOS
-    pick = rng.choice(choices)
-    _recent_scenarios.append(pick)
-    return pick
 
 
 def _avoid_lines(earlier: List[Exercise], avoid_ids: set) -> List[str]:
@@ -128,8 +119,9 @@ _SHORT_REASONS = (
     ("is missing", "left out a part"),
 )
 
-# The stages of on_progress events, in the order they usually come.
-STAGES = ("asking", "checking", "rejected", "done", "fallback")
+# The stages of on_progress events, in the order they usually come ("ideas" only when the
+# target's real-world use cases are not saved yet).
+STAGES = ("ideas", "asking", "checking", "rejected", "done", "fallback")
 
 
 def short_reason(problem: str) -> str:
@@ -166,13 +158,17 @@ def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] 
                       on_progress: Optional[ProgressCallback] = None) -> Exercise:
     """A new, validated exercise about `target` at level `difficulty` (1-3).
 
+    The exercise is set in one of the target's real-world use cases (usecases.py), taking turns.
     Up to 4 model calls within `timeout` seconds (a rejected reply is sent back with the reason,
     so the model can fix it). If none works, an earlier saved exercise for the same target and
     level is reused. Otherwise raises GenerationUnavailable with a one-line reason.
 
     on_progress (optional) is called on this thread with a dict at every step:
         {"attempt": 2, "max_attempts": 4, "elapsed": 7.1, "budget": 20.0,
-         "stage": "asking" | "checking" | "rejected" | "done" | "fallback", "detail": "..."}
+         "stage": "ideas" | "asking" | "checking" | "rejected" | "done" | "fallback",
+         "detail": "..."}
+    "ideas" (attempt 0): the model lists real-world use cases of the target first (once per
+    target, then they are saved; at most usecases.TIME_SLICE seconds of the budget);
     "asking": attempt n is sent to the model; "checking": its reply is being validated (the
     sandbox runs it); "rejected": detail says why in a few words (short_reason); "done": the
     exercise is ready; "fallback": no new exercise, detail says what happens instead. A model
@@ -202,6 +198,20 @@ def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] 
         raise raised from e
 
 
+def _use_cases(info: TargetInfo, provider, timeout: float, time_left, rng, report) -> List[str]:
+    """The target's saved use cases, or new ones from the model (in a slice of the budget).
+    [] when the model gives none: the exercise is then written without a given situation, and
+    the next exercise asks again."""
+    found = usecases.load(info.name)
+    if found:
+        return found
+    slice_ = min(usecases.TIME_SLICE, float(timeout) * usecases.BUDGET_SHARE, time_left())
+    if slice_ <= 0:
+        return []
+    report("ideas", 0, "finding real-world uses")
+    return usecases.fetch(info, provider, slice_, seed=rng.randrange(2 ** 31)) or []
+
+
 def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float,
               report=None) -> Exercise:
     if report is None:
@@ -219,12 +229,15 @@ def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float
     earlier = cache.load(info.name)
     known_ids = {e.id for e in earlier} | avoid
     rng = random.Random()
-    focus = rng.sample(FOCUS, len(FOCUS))
+    ideas = _use_cases(info, provider, timeout, time_left, rng, report)
+    use_case = usecases.pick(info.name, ideas, rng) if ideas else None
     problem, repair, fresh_retries, tries = "", None, 0, 0
     stop_reason = ""
 
     while tries < MAX_ATTEMPTS and time_left() > 0 and (tries == 0 or time_left() > MIN_TIME_FOR_RETRY):
-        messages = build_messages(info, level, scenario=_scenario(rng), focus=focus[tries % len(focus)],
+        if tries and repair is None and ideas:
+            use_case = usecases.pick(info.name, ideas, rng)   # a fresh try: another situation
+        messages = build_messages(info, level, use_case=use_case,
                                   avoid=_avoid_lines(earlier, avoid), repair=repair)
         tries += 1
         report("asking", tries)

@@ -30,6 +30,7 @@ class Settings:
     base_url: str = "http://localhost:11434"
     ui: str = "auto"              # window for the exercise: one of UIS
     library: str = "builtins"     # the library used last in the menu
+    prefetch: bool = True         # write the next AI exercise while the student works
 
 
 _DEFAULTS = Settings()
@@ -46,6 +47,8 @@ def _clean(name: str, value: Any) -> Any:
         allowed = MODES if name == "mode" else UIS
         text = value.strip().lower() if isinstance(value, str) else None
         return text if text in allowed else default
+    if name == "prefetch":
+        return value if isinstance(value, bool) else default
     if name == "level":
         ok = isinstance(value, int) and not isinstance(value, bool) and value in LEVELS
         return value if ok else default

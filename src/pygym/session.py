@@ -10,6 +10,11 @@ A command that loads a new exercise (:s, :level 2) can take up to 20 s in AI mod
 model writes it. A front-end that wants to stay responsive calls  session.start(command, code)
 instead: it returns a Job at once, the exercise is written in a background thread, and
 job.result() gives the same Response handle() would have given (see Job).
+
+Prefetch: while the student works on an exercise that the AI wrote (or would write), the next one
+is already being written in the background (one at a time, at the level :s would use; see
+Session.prefetch). :s then takes it at once, or, if it is still being written, start(":s")
+returns a Job that follows THAT work (its progress, no second model request).
 """
 from __future__ import annotations
 
@@ -150,7 +155,7 @@ class JobCancelled(BaseException):
 
 # The progress of a job before its first event. The AI engine reports dicts with these keys
 # (see pygym.ai.generate_exercise(on_progress=...)); stage is one of
-# "starting" | "asking" | "checking" | "rejected" | "done" | "fallback".
+# "starting" | "ideas" | "asking" | "checking" | "rejected" | "done" | "fallback".
 STARTING: Dict[str, Any] = {"stage": "starting", "attempt": 0, "max_attempts": 4,
                             "elapsed": 0.0, "budget": 20.0, "detail": ""}
 
@@ -164,6 +169,7 @@ class Job:
         job.elapsed     seconds since the job started (for a smoothly moving bar)
         job.cancel()    stop waiting; the result is thrown away (Session: the exercise stays)
         job.wait(t)     block up to t seconds; True when done
+        job.join(t)     like wait(), but for the worker thread itself, also after cancel()
         job.result()    block until done, then the outcome (Session jobs: a Response). The first
                         call applies it (a new exercise replaces the old one, on the CALLER's
                         thread): call it once the job is done, from the thread that owns the
@@ -175,15 +181,21 @@ class Job:
 
     def __init__(self, work: Optional[Callable[[Callable[[Dict[str, Any]], None]], Any]] = None,
                  finish: Optional[Callable[[Any, Optional[BaseException]], Any]] = None, *,
-                 background: bool = True, on_cancel: Any = None) -> None:
+                 background: bool = True, on_cancel: Any = None,
+                 follow: Optional["Job"] = None) -> None:
         """work(report) does the job and returns its value; report(event_dict) updates progress
         (it raises JobCancelled once the job is cancelled). finish(value, error) turns the
         outcome into the result (default: the value, or the error raised again). on_cancel is
-        what result() returns after cancel(). background=False runs work right here."""
+        what result() returns after cancel(). background=False runs work right here.
+
+        follow=other (instead of work): this job waits for another job that is already running
+        (a prefetch) and shows ITS progress and elapsed time. Cancelling this job does not stop
+        the other one; result() is finish(other's value, other's error)."""
         self._lock = threading.Lock()
-        self._finished = threading.Event()
+        self._follow = follow
+        self._finished = follow._finished if follow is not None else threading.Event()
         self._progress: Dict[str, Any] = dict(STARTING)
-        self._started = time.monotonic()
+        self._started = follow._started if follow is not None else time.monotonic()
         self._cancelled = False
         self._applied = False
         self._value: Any = None
@@ -191,8 +203,10 @@ class Job:
         self._result: Any = None
         self._finish = finish
         self._on_cancel = on_cancel
-        self.background = bool(background and work is not None)
-        if work is None:
+        self.background = bool(background and work is not None) or follow is not None
+        if follow is not None:
+            pass
+        elif work is None:
             self._finished.set()
         elif self.background:
             threading.Thread(target=self._run, args=(work,), name="pygym-job", daemon=True).start()
@@ -237,6 +251,8 @@ class Job:
 
     @property
     def progress(self) -> Dict[str, Any]:
+        if self._follow is not None:
+            return self._follow.progress
         with self._lock:
             return dict(self._progress)
 
@@ -247,6 +263,11 @@ class Job:
     def wait(self, timeout: Optional[float] = None) -> bool:
         if self._cancelled:
             return True
+        return self._finished.wait(timeout)
+
+    def join(self, timeout: Optional[float] = None) -> bool:
+        """Wait for the worker itself to end, even after cancel() (wait() returns at once then):
+        a cancelled job's thread may still be inside its model request."""
         return self._finished.wait(timeout)
 
     def cancel(self) -> bool:
@@ -264,14 +285,39 @@ class Job:
         self._finished.wait()
         if self._cancelled:  # cancelled while we waited (from another thread)
             return self._on_cancel
+        source = self._follow if self._follow is not None else self
+        if source is not self and source.cancelled:  # the followed job was thrown away
+            self._cancelled = True
+            return self._on_cancel
         self._applied = True
         if self._finish is not None:
-            self._result = self._finish(self._value, self._error)
-        elif self._error is not None:
-            raise self._error
+            self._result = self._finish(source._value, source._error)
+        elif source._error is not None:
+            raise source._error
         else:
-            self._result = self._value
+            self._result = source._value
         return self._result
+
+
+def _wait_for(previous: Optional[Job], report=None) -> None:
+    """Wait until an earlier generation's worker has ended. A cancelled job's thread may still be
+    inside its model request; waiting keeps pygym at one request at a time, so a new request is
+    not queued behind it on the model's clock. report({}) raises JobCancelled once the waiting
+    job itself is cancelled."""
+    if previous is None:
+        return
+    while not previous.join(0.1):
+        if report is not None:
+            report({})
+
+
+def _prefetch_setting() -> bool:
+    """config.Settings.prefetch (False if the settings can not be read)."""
+    try:
+        from . import config
+        return bool(config.load().prefetch)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 MODES = ("preset", "ai")
@@ -279,12 +325,17 @@ MODES = ("preset", "ai")
 
 class Session:
     def __init__(self, name: str, difficulty=None, mode: Optional[str] = None, *,
-                 on_progress: Optional[Callable[[Dict[str, Any]], None]] = None):
+                 on_progress: Optional[Callable[[Dict[str, Any]], None]] = None,
+                 prefetch: Optional[bool] = None):
         """mode: "preset" (bundled exercises, offline) or "ai" (generated by a local LLM, falls back
         to preset when generation fails). None = the saved setting (config.load().mode).
 
         difficulty: the starting level 1-3 (None = 1). on_progress: called with progress events
-        while the FIRST exercise is generated (the menu shows a bar with it)."""
+        while the FIRST exercise is generated (the menu shows a bar with it).
+
+        prefetch: write the next exercise in the background as soon as one is shown, when the
+        AI writes them (None = the saved setting, config.load().prefetch). Call close() when the
+        session ends (a quit command does it itself)."""
         self.name = name
         if mode is None:
             from . import config
@@ -302,6 +353,11 @@ class Session:
         self._job: Optional[Job] = None  # the background job loading the next exercise
         self._solved_this = False  # this exercise has passed a check already (counts once)
         self._revealed = False  # the solution of this exercise was shown
+        self.prefetch = _prefetch_setting() if prefetch is None else bool(prefetch)
+        self._prefetch: Optional[Job] = None  # the next exercise, being written in the background
+        self._prefetch_level = 0  # the level it is written at
+        self._last_worker: Optional[Job] = None  # the latest background generation (see _wait_for)
+        self.closed = False
         ex, notice = self._produce(self.level, set(), on_progress)
         self._set_exercise(ex, notice)
 
@@ -324,10 +380,14 @@ class Session:
             return False
         if self.mode == "ai":
             return True
-        try:
-            return not any(e.target_function == self.name for e in loader.load_all())
-        except Exception:  # noqa: BLE001
-            return False
+        has_presets = getattr(self, "_has_presets", None)  # asked once per session
+        if has_presets is None:
+            try:
+                has_presets = any(e.target_function == self.name for e in loader.load_all())
+            except Exception:  # noqa: BLE001
+                return False
+            self._has_presets = has_presets
+        return not has_presets
 
     def _produce(self, level: int, seen: Set[str], report=None) -> Tuple[Exercise, Optional[str]]:
         """The next exercise at `level` and the notice to show with it (None = keep the notice).
@@ -383,6 +443,58 @@ class Session:
         self.last_result = None
         self._solved_this = False
         self._revealed = False
+        self._start_prefetch()
+
+    # ----- prefetch: the next exercise, written while the student works ------------------------
+
+    @property
+    def next_ready(self) -> bool:
+        """True if the next exercise was written in the background and :s will show it at once."""
+        job = self._prefetch
+        return (job is not None and self._prefetch_level == self.level and job.done
+                and not job.cancelled)
+
+    def _start_prefetch(self) -> None:
+        """Start writing the next exercise (current level, everything seen so far avoided) in a
+        background thread, if prefetch is on, the AI writes this function's exercises and none
+        is being written yet. Never blocks; the session itself is not changed by the worker."""
+        if self.closed or not self.prefetch or self._prefetch is not None:
+            return
+        if not self.needs_generation(self.level):
+            return
+        level, seen, previous = self.level, set(self.seen), self._last_worker
+
+        def work(report):
+            _wait_for(previous, report)
+            return self._produce(level, seen, report)
+
+        job = Job(work, None, background=True)
+        self._prefetch, self._prefetch_level, self._last_worker = job, level, job
+
+    def _drop_prefetch(self) -> None:
+        """Throw the prefetched exercise away (its thread ends at its next step; a model request
+        already sent finishes and is ignored)."""
+        job, self._prefetch = self._prefetch, None
+        if job is not None:
+            job.cancel()
+
+    def _prefetched(self, level: int) -> Optional[Job]:
+        """The prefetch job for `level`, or None (one for another level is thrown away)."""
+        job = self._prefetch
+        if job is None:
+            return None
+        if self._prefetch_level != level or job.cancelled:
+            self._drop_prefetch()
+            return None
+        return job
+
+    def close(self) -> None:
+        """The session is over: stop the background work (prefetch, a loading job). Threads are
+        daemons, so a model request still on its way never keeps the program alive."""
+        self.closed = True
+        self._drop_prefetch()
+        if self._job is not None and self._job.pending:
+            self._job.cancel()
 
     # ----- the command interface (used by every front-end) -------------------------------
 
@@ -419,7 +531,7 @@ class Session:
             return False
         name, arg = _split_command(command.strip())
         if name == ":s":
-            return self.needs_generation(self.level)
+            return not self.next_ready and self.needs_generation(self.level)
         if name in (":level", ":lv") and arg is not None:
             new = parse_level(arg)
             return new is not None and new != self.level and self.needs_generation(new)
@@ -444,36 +556,68 @@ class Session:
             return self._load(None, "Skipped. Here is another one.", background)
         if name in (":level", ":lv"):
             return self._level_command(arg, background)
-        return Job.finished(self._simple(cmd, code))
+        resp = self._simple(cmd, code)
+        if resp.quit:
+            self.close()
+        else:
+            self._start_prefetch()  # e.g. after a cancelled :level, which threw the old one away
+        return Job.finished(resp)
 
     def _load(self, level: Optional[int], text: str, background: bool) -> Job:
-        """A Job that loads the next exercise (at `level`, None = the current one)."""
+        """A Job that loads the next exercise (at `level`, None = the current one): the
+        prefetched one when there is one for that level, else a new one."""
         target = self.level if level is None else level
+        pre = self._prefetched(target)
+        if pre is not None:
+            return self._take_prefetch(pre, level, text, background)
         seen = set(self.seen)
-        threaded = background and self.needs_generation(target)
+        generating = self.needs_generation(target)
+        threaded = background and generating
+        previous = self._last_worker if generating else None
 
         def work(report):
+            _wait_for(previous, report if threaded else None)
             return self._produce(target, seen, report if threaded else None)
 
         def finish(value, error):
-            if error is not None:
-                if isinstance(error, loader.ExerciseUnavailable):
-                    # Only for a function without presets whose generation failed this time.
-                    return Response(NO_OTHER, "refused")
-                if not threaded:
-                    raise error
-                return Response(f"Could not load another exercise ({type(error).__name__}: "
-                                f"{error}). Keep going with this one.", "refused")
-            ex, notice = value
-            if level is not None and level != self.level:
-                self.level, self.solved_at_level = level, 0
-            self._set_exercise(ex, notice)
-            return Response(text, "exercise", clear_code=True)
+            return self._loaded(level, text, value, error, threaded)
 
         job = Job(work, finish, background=threaded, on_cancel=Response(CANCELLED, "refused"))
         if threaded:
+            self._job = self._last_worker = job
+        return job
+
+    def _take_prefetch(self, pre: Job, level: Optional[int], text: str, background: bool) -> Job:
+        """:s with a prefetch: done at once if it is ready, else a Job that follows it (the same
+        model request, its progress). Cancelling that Job keeps the prefetch running."""
+        def finish(value, error):
+            if self._prefetch is pre:
+                self._prefetch = None
+            resp = self._loaded(level, text, value, error, True)
+            self._start_prefetch()  # not shown (refused): write another one for the next :s
+            return resp
+
+        job = Job(finish=finish, on_cancel=Response(CANCELLED, "refused"), follow=pre)
+        if background and not job.done:
             self._job = job
         return job
+
+    def _loaded(self, level: Optional[int], text: str, value, error, threaded: bool) -> Response:
+        """Apply a loaded exercise (value = (exercise, notice)) or say why there is none."""
+        if error is not None:
+            if isinstance(error, loader.ExerciseUnavailable):
+                # Only for a function without presets whose generation failed this time.
+                return Response(NO_OTHER, "refused")
+            if not threaded:
+                raise error
+            return Response(f"Could not load another exercise ({type(error).__name__}: "
+                            f"{error}). Keep going with this one.", "refused")
+        ex, notice = value
+        if level is not None and level != self.level:
+            self.level, self.solved_at_level = level, 0
+            self._drop_prefetch()  # written for the old level
+        self._set_exercise(ex, notice)
+        return Response(text, "exercise", clear_code=True)
 
     def _level_command(self, arg: Optional[str], background: bool) -> Job:
         if arg is None:
@@ -569,6 +713,9 @@ class Session:
         self.last_result = result
         if result.passed:
             level_up = self._count_solved()
+            if level_up:  # the prefetched exercise is for the old level
+                self._drop_prefetch()
+                self._start_prefetch()
             up = f" Level up! Next exercise: {LEVELS[self.level]} {level_dots(self.level)}"
             if then_quit:
                 return Response(f"Passed! {result.message}" + (up if level_up else ""), "pass",
@@ -618,7 +765,20 @@ class Session:
         return self.exercise.reference_solution
 
     def skip(self) -> Exercise:
-        """Load the next exercise now (blocking). Raises loader.ExerciseUnavailable."""
-        ex, notice = self._produce(self.level, set(self.seen))
+        """Load the next exercise now (blocking; the prefetched one if there is one). Raises
+        loader.ExerciseUnavailable."""
+        pre = self._prefetched(self.level)
+        value = None
+        if pre is not None:
+            self._prefetch = None
+            try:
+                value = pre.result()  # waits for it; raises what the worker raised
+            except BaseException:
+                self._start_prefetch()  # try again for the next skip
+                raise
+        if value is None:
+            _wait_for(self._last_worker)
+            value = self._produce(self.level, set(self.seen))
+        ex, notice = value
         self._set_exercise(ex, notice)
         return self.exercise

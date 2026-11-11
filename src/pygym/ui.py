@@ -148,13 +148,25 @@ def _auto_ui() -> str:
 
 
 def run(session: Session, ui: str = "auto") -> None:
-    """ui: "auto" (default), "jupyter", "editor", "tk" or "text"."""
+    """ui: "auto" (default), "jupyter", "editor", "tk" or "text".
+
+    When the window closes (quit, Ctrl-C, end of input) the session is closed, which stops its
+    background prefetch. Jupyter is the exception: start() returns at once and the session lives
+    on in the notebook (a quit command or the next session closes it)."""
     if ui == "auto":
         ui = _auto_ui()
     if ui == "jupyter":
         from . import jupyter
         jupyter.start(session)
-    elif ui == "editor":
+        return
+    try:
+        _run_window(session, ui)
+    finally:
+        session.close()
+
+
+def _run_window(session: Session, ui: str) -> None:
+    if ui == "editor":
         from . import editor
         if editor.editor_available():
             editor.run_editor(session)

@@ -708,6 +708,8 @@ def _print_status(console: Console, settings: config.Settings) -> None:
     table.add_row("provider", settings.provider)
     table.add_row("model", settings.model)
     table.add_row("address", settings.base_url)
+    table.add_row("prefetch", "on (the next AI exercise is written while you work)"
+                  if settings.prefetch else "off")
     table.add_row("AI", Text("ready", style=style.PALETTE["pass"]) if ready
                   else Text("not reachable (AI mode falls back to preset)", style=style.PALETTE["fail"]))
     table.add_row("sandbox", _sandbox_cell())

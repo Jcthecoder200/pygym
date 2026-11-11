@@ -207,11 +207,12 @@ def test_cached_exercise_is_not_returned_as_new(use):
     assert len(fake.calls) == 2
 
 
-def test_scenarios_vary_between_calls(use):
+def test_situations_vary_between_calls(use):
     fake = use(GOOD, OTHER, reply("third", "return [list(p) for p in zip(names, scores)]"))
     for _ in range(3):
         ai.generate_exercise("zip", 1, avoid_ids=set())
-    stories = [next(line for line in user_text(c).splitlines() if line.startswith("Story"))
+    stories = [next(line for line in user_text(c).splitlines()
+                    if line.startswith("Real-world situation"))
                for c in fake.calls]
     assert len(set(stories)) == 3
     assert len({c["seed"] for c in fake.calls}) == 3

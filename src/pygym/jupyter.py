@@ -72,6 +72,8 @@ def start(session, ip=None) -> None:
     if ip is None:
         print("The Jupyter front-end only works inside Jupyter or IPython. Try ui='text'.")
         return
+    if _active is not None and _active is not session:
+        _active.close()  # the old session's prefetch is no longer wanted
     _active = session
     # "line_cell" registers both %pygym (line magic) and %%pygym (cell magic).
     ip.register_magic_function(pygym_magic, magic_kind="line_cell", magic_name="pygym")

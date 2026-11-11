@@ -12,11 +12,14 @@ Contract (used by Session and the menu; keep these names and signatures):
         target: a built-in name ("zip") or a dotted importable name ("statistics.median",
         "str.join"). Returns a VALIDATED Exercise with source="ai" and generator="<provider:model>",
         or raises GenerationUnavailable. on_progress(event_dict), if given, is called at every
-        step (asking / checking / rejected / done / fallback; see engine.generate_exercise).
+        step (ideas / asking / checking / rejected / done / fallback; see
+        engine.generate_exercise).
 
-Modules: targets (what can be a target), prompt (what we ask), providers (Ollama, an
-OpenAI-compatible server, a fake for tests), validate (reply -> checked Exercise), cache (saved
-exercises in PYGYM_HOME/generated/), engine (the loop and the time budget).
+Modules: targets (what can be a target), usecases (real-world situations each exercise is set
+in, asked once per target and saved in PYGYM_HOME/generated/usecases/), prompt (what we ask),
+providers (Ollama, an OpenAI-compatible server, a fake for tests), validate (reply -> checked
+Exercise), cache (saved exercises in PYGYM_HOME/generated/), engine (the loop and the time
+budget).
 Set the environment variable PYGYM_NO_AI=1 to turn AI mode off (no network at all).
 """
 from __future__ import annotations

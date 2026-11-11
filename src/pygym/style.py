@@ -415,14 +415,17 @@ CANCEL_HINT = "Ctrl-C cancels"
 
 
 def progress_text(event: dict, elapsed: Optional[float] = None) -> str:
-    """"writing exercise · try 2 of 4 · 7 s", "try 1 rejected: crashed on its tests · 9 s",
+    """"finding real-world uses · 1 s", "writing exercise · try 2 of 4 · 7 s",
+    "try 1 rejected: crashed on its tests · 9 s",
     "using a hand-written exercise instead". elapsed: the live seconds (default: the event's)."""
     stage = event.get("stage", "starting")
     seconds = int(event.get("elapsed", 0.0) if elapsed is None else elapsed)
     attempt, most = event.get("attempt") or 0, event.get("max_attempts") or 0
     tries = f"try {attempt} of {most}" if attempt and most else ""
     detail = str(event.get("detail") or "")
-    if stage == "asking":
+    if stage == "ideas":
+        text = "finding real-world uses"
+    elif stage == "asking":
         text = f"writing exercise · {tries}" if tries else "writing exercise"
     elif stage == "checking":
         text = f"checking exercise · {tries}" if tries else "checking exercise"

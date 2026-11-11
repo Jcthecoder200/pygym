@@ -1,4 +1,10 @@
-"""What we ask the model: the JSON schema, the messages and the variety lists."""
+"""What we ask the model for an exercise: the JSON schema and the messages.
+
+The story comes from a real-world use case of the target (usecases.py), not from a list of
+themes: a theme unrelated to the function (a "plant watering schedule" for numpy.cumsum) led to
+exercises with hidden rules. The old FOCUS list (data shapes like "working with strings", "a list
+of pairs") is gone too: it often fought the use case and the target's natural input; variety now
+comes from the use cases and depth from the level rule."""
 from __future__ import annotations
 
 import json
@@ -58,36 +64,26 @@ LEVEL_RULES: Dict[int, str] = {
        "(an optional argument, an edge case, nested data) and needs careful thinking",
 }
 
-SCENARIOS: List[str] = [
-    "a school gradebook", "a weather station", "a music playlist", "a small shop",
-    "a sports league table", "a library catalogue", "a to-do app", "a train timetable",
-    "a recipe book", "a game leaderboard", "a fitness tracker", "a chat log",
-    "a bus route planner", "a cinema booking system", "a plant watering schedule",
-    "a student club budget", "a bakery order list", "a hiking trail log", "a coffee shop menu",
-    "a parking garage", "a photo album", "a quiz game", "a bike rental service",
-    "a university course list", "a pet shelter", "a word game", "a bank statement",
-    "a delivery tracker", "a football match report", "a space mission log",
-]
-
-FOCUS: List[str] = [
-    "the most common way to use it", "an optional argument", "an edge case with empty input",
-    "working with strings", "combining it with a dict", "nested lists",
-    "numbers with negative values", "keeping the original order", "a list of pairs",
-    "counting or totals",
-]
+# Where the exercise's story comes from: one real-world use case of the target (see usecases.py),
+# or, when the model could not list any, this line (the model picks a situation itself).
+NO_USE_CASE = "a realistic everyday task where `{target}` is the natural tool (pick one yourself)"
 
 USER_TEMPLATE = """Write one exercise that teaches `{target}`.
 
 Level: {level_name} ({level}/3): {level_rule}.
-Story idea for the question (keep it short): {scenario}.
-Focus: {focus}.
+Real-world situation: {situation}.
+The situation must be one where `{target}` is the natural tool, so the student learns to \
+recognise this kind of problem as a job for `{target}`.
 
 What `{target}` is:
   signature: {signature}
   documentation: {doc}
 
 Rules:
-- The student writes ONE function. question_text says what it takes and returns, with one example.
+- The student writes ONE function. question_text tells the situation in one or two sentences,
+  says what each input is and what the function returns, and gives one example call with its result.
+- question_text states EVERY rule the reference_solution uses (order, rounding, ties, empty input,
+  units...). No hidden rules: a student who reads only question_text must be able to pass every test.
 - function_signature is exactly the def line, e.g. "def total(prices):".
 - reference_solution is the full correct function and MUST call {call_form}.
 - Put any import on its own line inside reference_solution. Only these imports are allowed: {imports}.
@@ -102,14 +98,16 @@ Example of the exact shape (about `max`, NOT your target):
 {fewshot}"""
 
 FEWSHOT = json.dumps({
-    "question_text": "Write a function 'best_player' that takes a list of [name, score] pairs and "
-                     "returns the name with the highest score. Example: "
+    "question_text": "After a quiz round the app shows who won. Write a function 'best_player' "
+                     "that takes a list of [name, score] pairs (at least one pair) and returns "
+                     "the name with the highest score. If several players share the highest "
+                     "score, return the one listed first. Example: "
                      "best_player([[\"ana\", 3], [\"bo\", 7]]) returns \"bo\".",
     "function_name": "best_player",
     "function_signature": "def best_player(pairs):",
     "reference_solution": "def best_player(pairs):\n    return max(pairs, key=lambda p: p[1])[0]",
     "tests": [{"pairs": [["ana", 3], ["bo", 7]]}, {"pairs": [["x", 1]]},
-              {"pairs": [["a", 2], ["b", 9], ["c", 1]]}, {"pairs": [["p", -1], ["q", -5]]}],
+              {"pairs": [["a", 2], ["b", 9], ["c", 1]]}, {"pairs": [["p", 4], ["q", 4]]}],
     "hint": "max() takes a key= function that says what to compare.",
 })
 
@@ -136,10 +134,12 @@ REPAIR_TEMPLATE = ("That exercise was rejected: {problem}. "
                    "Return a corrected JSON object with the same fields.")
 
 
-def build_messages(info: TargetInfo, level: int, *, scenario: str, focus: str,
+def build_messages(info: TargetInfo, level: int, *, use_case: Optional[str] = None,
                    avoid: Sequence[str] = (), repair: Optional[Tuple[str, str]] = None
                    ) -> List[dict]:
-    """Chat messages for one attempt. repair = (previous raw reply, why it was rejected)."""
+    """Chat messages for one attempt. use_case: the real-world situation (None = let the model
+    pick one where the target is the natural tool). repair = (previous raw reply, why it was
+    rejected)."""
     level = level if level in LEVEL_NAMES else 1
     imports = sorted(ALLOWED_IMPORTS | set(info.allowed_imports))
     alias = ALIASES.get(info.package)
@@ -166,8 +166,8 @@ def build_messages(info: TargetInfo, level: int, *, scenario: str, focus: str,
         avoid_block = f"- Do not repeat these earlier exercises; write something different:\n{lines}\n"
     user = USER_TEMPLATE.format(
         target=info.name, level=level, level_name=LEVEL_NAMES[level], level_rule=LEVEL_RULES[level],
-        scenario=scenario, focus=focus, signature=info.signature or "(see documentation)",
-        doc=info.doc or "(no documentation)", call_form=info.call_form,
+        situation=use_case or NO_USE_CASE.format(target=info.name),
+        signature=info.signature or "(see documentation)", doc=info.doc or "(no documentation)", call_form=info.call_form,
         imports=", ".join(imports), avoid_block=avoid_block, fewshot=FEWSHOT,
         library_block=library_block, no_io=no_io)
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
