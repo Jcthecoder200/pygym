@@ -105,6 +105,9 @@ def _level(difficulty) -> int:
 # tests"). First match wins; the full reason still goes back to the model and into the log.
 _SHORT_REASONS = (
     ("JSON", "not valid JSON"),
+    ("too simple for", "too simple for the level"),
+    ("too complex for", "too complex for the level"),
+    ("too long for", "too long for the level"),
     ("crashed", "crashed on its tests"),
     ("ran too long", "ran too long"),
     ("really call", "did not really use the function"),
@@ -155,8 +158,14 @@ def _reporter(on_progress: Optional[ProgressCallback], budget: float):
 def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] = None,
                       settings: Optional[config.Settings] = None,
                       timeout: float = 20.0,
-                      on_progress: Optional[ProgressCallback] = None) -> Exercise:
+                      on_progress: Optional[ProgressCallback] = None,
+                      bigger: bool = False) -> Exercise:
     """A new, validated exercise about `target` at level `difficulty` (1-3).
+
+    The reference solution must fit the level (levels.check_level: no branch or loop at
+    beginner; a loop and a condition at intermediate; plus data structures or algorithms at
+    advanced). bigger=True (advanced only): the target is one step of a bigger task, for
+    targets too small for an advanced exercise on their own (TargetInfo.simple).
 
     The exercise is set in one of the target's real-world use cases (usecases.py), taking turns.
     Up to 4 model calls within `timeout` seconds (a rejected reply is sent back with the reason,
@@ -185,7 +194,8 @@ def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] 
     avoid = set(avoid_ids or ())
     report = _reporter(on_progress, timeout)
     try:
-        return _generate(info, level, avoid, settings or config.load(), timeout, report)
+        return _generate(info, level, avoid, settings or config.load(), timeout, report,
+                         bigger=bigger)
     except GenerationUnavailable:
         raise
     except Exception as e:  # noqa: BLE001  (a bug here must not crash a lesson)
@@ -213,7 +223,7 @@ def _use_cases(info: TargetInfo, provider, timeout: float, time_left, rng, repor
 
 
 def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float,
-              report=None) -> Exercise:
+              report=None, bigger: bool = False) -> Exercise:
     if report is None:
         report = _reporter(None, timeout)
     deadline = clock() + max(float(timeout), 0.0)
@@ -238,7 +248,8 @@ def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float
         if tries and repair is None and ideas:
             use_case = usecases.pick(info.name, ideas, rng)   # a fresh try: another situation
         messages = build_messages(info, level, use_case=use_case,
-                                  avoid=_avoid_lines(earlier, avoid), repair=repair)
+                                  avoid=_avoid_lines(earlier, avoid), repair=repair,
+                                  bigger=bigger)
         tries += 1
         report("asking", tries)
         try:

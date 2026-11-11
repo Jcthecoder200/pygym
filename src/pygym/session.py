@@ -4,7 +4,8 @@ All command rules live here (the "backbone"), so every front-end (text CLI, tkin
 anything later) behaves the same way. A front-end only:
   1. collects the student's code and the command they chose,
   2. calls  session.handle(command, code)  and
-  3. displays the returned Response and obeys its flags (quit / ask_reveal / clear_code).
+  3. displays the returned Response and obeys its flags (quit / ask_reveal / ask_bigger /
+     clear_code).
 
 A command that loads a new exercise (:s, :level 2) can take up to 20 s in AI mode, because a local
 model writes it. A front-end that wants to stay responsive calls  session.start(command, code)
@@ -15,6 +16,15 @@ Prefetch: while the student works on an exercise that the AI wrote (or would wri
 is already being written in the background (one at a time, at the level :s would use; see
 Session.prefetch). :s then takes it at once, or, if it is still being written, start(":s")
 returns a Job that follows THAT work (its progress, no second model request).
+
+Bigger tasks: a function too small for an advanced exercise on its own (bin, abs, str.upper; see
+ai.targets.TargetInfo.simple), when the AI writes its exercises, is not moved to advanced without
+asking. :level 3, a level-up to 3 or a session started at level 3 give a Response with
+ask_bigger=True; the front-end asks bigger_prompt() [Y/n] and sends the answer as the command
+":bigger yes" (advanced exercises are bigger tasks that use the function as one step) or
+":bigger no" (stay at intermediate). The answer is remembered for the rest of the session. Until
+it is known the level stays below advanced, so neither :s nor the prefetch writes an advanced
+exercise for such a function.
 """
 from __future__ import annotations
 
@@ -50,7 +60,8 @@ SHORT = {":w": "check your code", ":wq": "check, then quit", ":out": "show test 
          ":s": "skip to another exercise", ":solution": "show the solution",
          ":level": "show / change your level", ":intro": "show this list again"}
 # Commands that take one word after them (":level 2"). Every other command is the whole line.
-ARG_COMMANDS = frozenset({":level", ":lv"})
+# ":bigger yes|no" answers the bigger-task question (front-ends send it; not in the intro list).
+ARG_COMMANDS = frozenset({":level", ":lv", ":bigger"})
 # Shown after "Unknown command": :level is left out so the line still fits 80 columns
 # (:intro and the start screen list it).
 _TRY = " ".join(name for name, _ in COMMANDS if name != ":level")
@@ -67,6 +78,12 @@ FALLBACK_DETAIL = "using a hand-written exercise instead"
 LEVELS: Dict[int, str] = {1: "beginner", 2: "intermediate", 3: "advanced"}
 MAX_LEVEL = 3
 LEVEL_UP_AFTER = 3
+
+# The bigger-task question (see the module docstring). The Response says why (too_small_text);
+# the front-end then asks this, with the function's name in it.
+BIGGER_PROMPT = ("Practise it inside a bigger task ({name} + loops, conditions and data "
+                 "structures)? [Y/n] ")
+NOT_ANSWERED = "Not answered: you stay at this level (:level 3 asks again)."
 
 # A line is a command only if the WHOLE line is one: ":" + letters/"!" ("…:wq"), or a command
 # of ARG_COMMANDS followed by exactly one word (":level 2"). Real Python code practically never
@@ -103,6 +120,35 @@ def level_dots(level: int) -> str:
     """●○○ for level 1, ●●○ for 2, ●●● for 3 (the same dots as style.dots)."""
     n = max(0, min(MAX_LEVEL, int(level or 0)))
     return "●" * n + "○" * (MAX_LEVEL - n)
+
+
+def bigger_answer(text: Optional[str]) -> Optional[str]:
+    """What a front-end sends after the [Y/n] bigger-task question: Enter, y or yes ->
+    ":bigger yes"; n or no -> ":bigger no"; anything else, or None (EOF / Ctrl-C / Esc) -> None:
+    not answered (send nothing; the level stays as it is)."""
+    if text is None:
+        return None
+    t = str(text).strip().lower()
+    if t in ("", "y", "yes"):
+        return ":bigger yes"
+    if t in ("n", "no"):
+        return ":bigger no"
+    return None
+
+
+def _yes_no(arg: Optional[str]) -> Optional[bool]:
+    t = (arg or "").strip().lower()
+    return True if t in ("y", "yes") else False if t in ("n", "no") else None
+
+
+def simple_target(name: str) -> bool:
+    """True if the function is too small for an advanced exercise on its own (bin, abs, len,
+    str.upper; ai.targets.TargetInfo.simple). False if it can not be looked up."""
+    try:
+        from .ai import targets
+        return targets.resolve(name).simple
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _valid_level(difficulty) -> int:
@@ -326,7 +372,7 @@ MODES = ("preset", "ai")
 class Session:
     def __init__(self, name: str, difficulty=None, mode: Optional[str] = None, *,
                  on_progress: Optional[Callable[[Dict[str, Any]], None]] = None,
-                 prefetch: Optional[bool] = None):
+                 prefetch: Optional[bool] = None, bigger: Optional[bool] = None):
         """mode: "preset" (bundled exercises, offline) or "ai" (generated by a local LLM, falls back
         to preset when generation fails). None = the saved setting (config.load().mode).
 
@@ -335,7 +381,12 @@ class Session:
 
         prefetch: write the next exercise in the background as soon as one is shown, when the
         AI writes them (None = the saved setting, config.load().prefetch). Call close() when the
-        session ends (a quit command does it itself)."""
+        session ends (a quit command does it itself).
+
+        bigger: the answer to the bigger-task question, if the front-end already asked it (the
+        menu does). For a function too small for advanced on its own (simple_target), a start at
+        level 3 means: True -> advanced bigger tasks; False -> intermediate; None -> intermediate
+        for now, and question() returns the question to ask at once."""
         self.name = name
         if mode is None:
             from . import config
@@ -358,6 +409,15 @@ class Session:
         self._prefetch_level = 0  # the level it is written at
         self._last_worker: Optional[Job] = None  # the latest background generation (see _wait_for)
         self.closed = False
+        # the bigger-task answer for this function (None = not asked yet), and why the question
+        # waits for an answer ("" = it does not; "start" / "level" (:level 3) / "levelup")
+        self.bigger_task: Optional[bool] = None if bigger is None else bool(bigger)
+        self._asking = ""
+        self._asked_now = False  # set by _count_solved when a level-up asks the question
+        if self.level == MAX_LEVEL and self._needs_answer():
+            self.level = MAX_LEVEL - 1  # never an advanced one-liner: intermediate until "yes"
+            if self.bigger_task is None:
+                self._asking = "start"
         ex, notice = self._produce(self.level, set(), on_progress)
         self._set_exercise(ex, notice)
 
@@ -423,6 +483,8 @@ class Session:
         kwargs: Dict[str, Any] = {"avoid_ids": set(seen)}
         if report is not None:
             kwargs["on_progress"] = report
+        if level == MAX_LEVEL and self.bigger_task and self.is_simple:
+            kwargs["bigger"] = True
         try:
             ex = ai.generate_exercise(self.name, level, **kwargs)
         except (NotImplementedError, ai.GenerationUnavailable) as e:
@@ -444,6 +506,103 @@ class Session:
         self._solved_this = False
         self._revealed = False
         self._start_prefetch()
+
+    # ----- the bigger-task question -----------------------------------------------------------
+
+    @property
+    def is_simple(self) -> bool:
+        """This function is too small for an advanced exercise on its own (simple_target)."""
+        simple = getattr(self, "_is_simple", None)  # looked up once per session
+        if simple is None:
+            simple = self._is_simple = simple_target(self.name)
+        return simple
+
+    def bigger_applies(self) -> bool:
+        """True if advanced exercises of this function are bigger tasks or nothing: it is simple
+        and the AI writes its exercises (hand-written presets are used as they are)."""
+        return self.is_simple and self.needs_generation(MAX_LEVEL)
+
+    def _needs_answer(self) -> bool:
+        """Going to advanced needs a "yes" first (not given yet, or "no")."""
+        return self.bigger_task is not True and self.bigger_applies()
+
+    @property
+    def asking_bigger(self) -> bool:
+        """True while the bigger-task question waits for an answer."""
+        return bool(self._asking)
+
+    def too_small_text(self) -> str:
+        return f"`{self.name}` is too small for an advanced exercise on its own."
+
+    def bigger_prompt(self) -> str:
+        """The [Y/n] question a front-end asks when a Response has ask_bigger=True."""
+        return BIGGER_PROMPT.format(name=self.name)
+
+    def question(self) -> Optional[Response]:
+        """The bigger-task question as a Response (ask_bigger=True) when a session that started
+        at level 3 waits for it (front-ends show it right after the first exercise), else None."""
+        if self._asking != "start":
+            return None
+        return Response(self.too_small_text(), "level", ask_bigger=True)
+
+    def _set_level(self, level: int) -> None:
+        """Change the level of the NEXT exercise (the current one stays); the prefetch follows."""
+        self.level, self.solved_at_level = level, 0
+        self._drop_prefetch()
+        self._start_prefetch()
+
+    def _stay_text(self, loading: bool) -> str:
+        why = f"`{self.name}` alone is too small for advanced"
+        if loading:
+            return f"Intermediate {level_dots(2)} ({why}). Here is a new exercise."
+        return f"Staying at intermediate {level_dots(2)}: {why}."
+
+    def _bigger_plan(self, answer: Optional[bool]) -> Optional[int]:
+        """The level :bigger <answer> loads an exercise at (None = it loads nothing)."""
+        if answer is None or not self.bigger_applies():
+            return None
+        if answer:
+            return None if self.level == MAX_LEVEL or self._asking == "levelup" else MAX_LEVEL
+        wanted = self._asking in ("level", "start")  # the student asked for advanced
+        return MAX_LEVEL - 1 if wanted and self.level < MAX_LEVEL - 1 else None
+
+    def _bigger_command(self, arg: Optional[str], background: bool) -> Job:
+        """:bigger yes|no: the answer to the bigger-task question (remembered)."""
+        answer = _yes_no(arg)
+        if answer is None:
+            return Job.finished(Response("Answer :bigger yes or :bigger no.", "refused"))
+        if not self.bigger_applies():
+            return Job.finished(Response(
+                f"`{self.name}` has advanced exercises of its own: :level 3 for one.", "refused"))
+        plan = self._bigger_plan(answer)
+        asking, self._asking = self._asking, ""
+        self.bigger_task = answer
+        if plan == MAX_LEVEL:
+            return self._load(plan, self._level_changed_text(plan), background)
+        if plan is not None:
+            return self._load(plan, self._stay_text(loading=True), background)
+        if answer:
+            if self.level == MAX_LEVEL:
+                return Job.finished(Response(
+                    f"Advanced `{self.name}` exercises are bigger tasks.", "level"))
+            self._set_level(MAX_LEVEL)  # the answer to a level-up question
+            return Job.finished(Response(
+                f"Level up! {self._advanced_name()}. :s for the next exercise.", "level"))
+        if self.level == MAX_LEVEL:  # changed their mind: the next exercise is intermediate
+            self._set_level(MAX_LEVEL - 1)
+            return Job.finished(Response(self._stay_text(loading=False)
+                                         + " :s for the next exercise.", "level"))
+        if asking:
+            return Job.finished(Response(self._stay_text(loading=False), "level"))
+        return Job.finished(Response(f"Noted: `{self.name}` stays at intermediate "
+                                     "(:bigger yes to change).", "level"))
+
+    def _advanced_name(self) -> str:
+        """"advanced ●●● (bin inside bigger tasks)" """
+        bigger = ""
+        if self.bigger_task and self.is_simple:
+            bigger = f" ({self.name} inside bigger tasks)"
+        return f"{LEVELS[MAX_LEVEL]} {level_dots(MAX_LEVEL)}{bigger}"
 
     # ----- prefetch: the next exercise, written while the student works ------------------------
 
@@ -534,7 +693,14 @@ class Session:
             return not self.next_ready and self.needs_generation(self.level)
         if name in (":level", ":lv") and arg is not None:
             new = parse_level(arg)
+            if new == MAX_LEVEL and new != self.level and self._needs_answer():
+                # asks first; after a "no" it loads intermediate when coming from beginner
+                stay = self.bigger_task is False and self.level < MAX_LEVEL - 1
+                return stay and self.needs_generation(MAX_LEVEL - 1)
             return new is not None and new != self.level and self.needs_generation(new)
+        if name == ":bigger":
+            plan = self._bigger_plan(_yes_no(arg))
+            return plan is not None and self.needs_generation(plan)
         return False
 
     def start_next(self, level: Optional[int] = None) -> Job:
@@ -544,8 +710,7 @@ class Session:
             return Job.finished(Response(BUSY, "refused"))
         if level is None or _valid_level(level) == self.level:
             return self._load(None, "Here is another one.", background=True)
-        return self._load(_valid_level(level), self._level_changed_text(_valid_level(level)),
-                          background=True)
+        return self._level_command(str(_valid_level(level)), background=True)
 
     def _dispatch(self, command: str, code: Optional[str], background: bool) -> Job:
         cmd = command.strip()
@@ -556,6 +721,8 @@ class Session:
             return self._load(None, "Skipped. Here is another one.", background)
         if name in (":level", ":lv"):
             return self._level_command(arg, background)
+        if name == ":bigger":
+            return self._bigger_command(arg, background)
         resp = self._simple(cmd, code)
         if resp.quit:
             self.close()
@@ -630,17 +797,29 @@ class Session:
         if new == self.level:
             return Job.finished(Response(
                 f"You are already at {LEVELS[new]} {level_dots(new)}.", "level"))
+        if new == MAX_LEVEL and self._needs_answer():
+            if self.bigger_task is None:  # ask first: bigger tasks, or stay at intermediate
+                self._asking = "level"
+                return Job.finished(Response(self.too_small_text(), "level", ask_bigger=True))
+            if self.level == MAX_LEVEL - 1:  # answered "no" earlier
+                return Job.finished(Response(self._stay_text(loading=False)
+                                             + " (:bigger yes to change)", "level"))
+            return self._load(MAX_LEVEL - 1, self._stay_text(loading=True), background)
         return self._load(new, self._level_changed_text(new), background)
 
-    @staticmethod
-    def _level_changed_text(level: int) -> str:
+    def _level_changed_text(self, level: int) -> str:
+        if level == MAX_LEVEL:
+            return f"Level: {self._advanced_name()}. Here is a new exercise."
         return f"Level: {LEVELS[level]} {level_dots(level)}. Here is a new exercise."
 
     def level_text(self) -> str:
         """What :level says: "Level: beginner ●○○ — 2 of 3 solved to level up. ..." """
         here = f"Level: {LEVELS[self.level]} {level_dots(self.level)}"
         if self.level >= MAX_LEVEL:
-            return f"{here} (the highest). :level 1-3 to change"
+            return f"Level: {self._advanced_name()} (the highest). :level 1-3 to change"
+        if self.level == MAX_LEVEL - 1 and self.bigger_task is False and self.bigger_applies():
+            return (f"{here} (the highest for `{self.name}`; :bigger yes for bigger tasks). "
+                    ":level 1-3 to change")
         return (f"{here} — {self.solved_at_level} of {LEVEL_UP_AFTER} solved to level up. "
                 f":level 1-3 to change")
 
@@ -701,6 +880,12 @@ class Session:
             return False
         self.solved_at_level += 1
         if self.solved_at_level >= LEVEL_UP_AFTER and self.level < MAX_LEVEL:
+            if self.level + 1 == MAX_LEVEL and self._needs_answer():
+                # too small for advanced on its own: ask first (or stay, after a "no")
+                self.solved_at_level = 0
+                if self.bigger_task is None:
+                    self._asking, self._asked_now = "levelup", True
+                return False
             self.level += 1
             self.solved_at_level = 0
             return True
@@ -713,6 +898,7 @@ class Session:
         self.last_result = result
         if result.passed:
             level_up = self._count_solved()
+            asked, self._asked_now = self._asked_now, False
             if level_up:  # the prefetched exercise is for the old level
                 self._drop_prefetch()
                 self._start_prefetch()
@@ -720,6 +906,10 @@ class Session:
             if then_quit:
                 return Response(f"Passed! {result.message}" + (up if level_up else ""), "pass",
                                 quit=True, result=result)
+            if asked:  # the next level would be advanced: ask how (bigger tasks or stay)
+                # kept short: it has to fit the editor's message line
+                return Response(f"Passed! {result.message} `{self.name}` alone is too small "
+                                "for advanced.", "pass", result=result, ask_bigger=True)
             if level_up:  # kept short: it has to fit the editor's message line
                 return Response(f"Passed! {result.message}{up} (:s)", "pass", result=result)
             return Response(f"Passed! {result.message} Type :s for another exercise or :q to quit.",

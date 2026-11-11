@@ -13,7 +13,9 @@ def exercise(name, difficulty=None, ui="auto", mode=None):
     preset when that fails). None = the saved setting (see `pygym.config`).
 
     `difficulty` is the starting level 1, 2 or 3 (None = 1). After 3 exercises solved at a level
-    the next one is a level higher; `:level` shows or changes it. `ui` chooses the front-end:
+    the next one is a level higher; `:level` shows or changes it. A function too small for an
+    advanced exercise on its own (`bin`, `abs`) starts at intermediate and asks first whether to
+    practise it inside a bigger task (generated exercises only). `ui` chooses the front-end:
       "auto"     (default) Jupyter notebook -> "jupyter"; Linux/macOS terminal -> "editor";
                  otherwise "tk" if a window can open, else "text"
       "jupyter"  write code in notebook cells that start with  %%pygym :w

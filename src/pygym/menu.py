@@ -34,6 +34,7 @@ from ._runner import denied_reason
 from .loader import ExerciseUnavailable
 # LEVELS and parse_level live in session (the :level command uses them too); kept importable here.
 from .session import LEVELS, Job, Session, parse_level  # noqa: F401
+from .session import BIGGER_PROMPT, MAX_LEVEL, bigger_answer, level_dots, simple_target
 
 # Libraries shown (and numbered) on the home screen. Any importable library can still be typed.
 LIBRARIES: Tuple[str, ...] = (
@@ -387,7 +388,7 @@ def run_menu(*, console: Optional[Console] = None, input_fn: Optional[Callable[[
     input_fn(prompt) -> str and the console can be replaced (the tests do); start_fn starts one
     exercise (default: `start`)."""
     console = console or Console()
-    start_fn = start_fn or start
+    start_fn = start_fn or _starter(input_fn)
 
     def ask(prompt: str) -> str:
         try:
@@ -557,23 +558,70 @@ def _pick_level(console: Console, ask, settings: config.Settings, target: str) -
 # ----- starting one exercise -------------------------------------------------------------------
 
 
-def start(choice: Choice, console: Console) -> int:
-    """Open the exercise window. Returns 0 when it ran and 1 when no exercise was available."""
+def _starter(input_fn: Optional[Callable[[str], str]]) -> Callable[[Choice, Console], int]:
+    """`start` with the menu's input function (for the bigger-task question)."""
+    if input_fn is None:
+        return start
+    return lambda choice, console: start(choice, console, input_fn=input_fn)
+
+
+def asks_bigger(choice: Choice) -> bool:
+    """True if starting this choice asks the bigger-task question first: advanced, a function
+    too small for it on its own (bin, abs, str.upper) and the AI writes its exercises (AI mode,
+    or no hand-written exercise). The same rule as Session.bigger_applies."""
+    if choice.level != MAX_LEVEL or ai.engine._turned_off():
+        return False
+    may_use_ai = choice.mode == "ai" or choice.target not in preset_levels()
+    return may_use_ai and simple_target(choice.target)
+
+
+def _ask_bigger(choice: Choice, console: Console,
+                input_fn: Optional[Callable[[str], str]]) -> Optional[bool]:
+    """Ask the bigger-task question. True / False, or None when not answered (EOF, Ctrl-C or
+    another word: back to the menu)."""
+    console.print(Text(f"`{choice.target}` is too small for an advanced exercise on its own.",
+                       style=style.PALETTE["level"]))
+    prompt = BIGGER_PROMPT.format(name=choice.target)
+    try:
+        raw = input_fn(prompt) if input_fn is not None else console.input(
+            f"[{_PROMPT_STYLE}]{escape(prompt)}[/]")
+    except (EOFError, KeyboardInterrupt):
+        raw = None
+    command = bigger_answer(raw)
+    return None if command is None else command.endswith("yes")
+
+
+def start(choice: Choice, console: Console, *,
+          input_fn: Optional[Callable[[str], str]] = None) -> int:
+    """Open the exercise window. Returns 0 when it ran and 1 when no exercise was available.
+
+    Advanced with a function too small for it (asks_bigger): asks first whether to practise it
+    inside a bigger task (input_fn, default: the console); no -> intermediate."""
     settings = config.load()
     may_use_ai = choice.mode == "ai" or choice.target not in preset_levels()
+    bigger: Optional[bool] = None
+    if asks_bigger(choice):
+        bigger = _ask_bigger(choice, console, input_fn)
+        if bigger is None:
+            console.print(Text("Not answered: back to the menu.", style=style.PALETTE["muted"]))
+            return 1
+        if not bigger:
+            console.print(Text(f"Staying at intermediate {level_dots(MAX_LEVEL - 1)}.",
+                               style=style.PALETTE["level"]))
+    extra = {} if bigger is None else {"bigger": bigger}  # only when the question was asked
     try:
         if may_use_ai and _ai_ready():
             # The same progress bar as :s in the line CLI (the model may take up to 20 s).
             console.print(Text(f"Writing a new exercise with {settings.model} … "
                                f"({_AI_TIMEOUT_TEXT})", style=style.PALETTE["muted"]))
             job = Job(lambda report: Session(choice.target, choice.level, choice.mode,
-                                             on_progress=report))
+                                             on_progress=report, **extra))
             if not style.wait_with_bar(job, console):
                 console.print(Text("Cancelled.", style=style.PALETTE["muted"]))
                 return 1
             session = job.result()
         else:
-            session = Session(choice.target, choice.level, choice.mode)
+            session = Session(choice.target, choice.level, choice.mode, **extra)
     except ExerciseUnavailable as e:
         _say(console, f"✗ {e}", kind="fail")
         if "AI could not" in str(e):
@@ -634,7 +682,7 @@ def main(argv: Optional[Sequence[str]] = None, *, console: Optional[Console] = N
         code = e.code
         return code if isinstance(code, int) else (0 if code is None else 2)
     console = console or Console()
-    start_fn = start_fn or start
+    start_fn = start_fn or _starter(input_fn)
     settings = config.load()
     muted = style.PALETTE["muted"]
 

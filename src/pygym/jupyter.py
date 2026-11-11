@@ -15,6 +15,10 @@ shows it as HTML, elsewhere (a plain IPython shell) as text. A check prints the 
 expected, got, ✓/✗) and each test's print() output under the cell; %pygym :out prints it again.
 While the AI writes a new exercise (%pygym :s, %pygym :level 2 in AI mode) a progress line is
 shown (see _wait); interrupting the kernel cancels and keeps the current exercise.
+
+The bigger-task question (Response.ask_bigger, or Session.question() right after a level-3 start
+with a function too small for advanced, such as bin) is asked with input() like the reveal
+question; the answer is sent as the next command (:bigger yes / :bigger no).
 """
 from __future__ import annotations
 
@@ -24,6 +28,7 @@ from rich.console import Console, Group
 from rich.text import Text
 
 from . import style
+from .session import NOT_ANSWERED, bigger_answer
 
 _active = None  # the Session the magics talk to (None = no exercise running)
 
@@ -80,6 +85,9 @@ def start(session, ip=None) -> None:
     console = _console()
     console.print(_intro(session.exercise))
     console.print(style.exercise_view(session))  # with Session.notice below, if any
+    question = getattr(session, "question", lambda: None)()
+    if question is not None:  # started at level 3 with a function too small for it
+        _obey(console, session, question)
 
 
 def _wait(job, refresh: float = 0.25) -> None:
@@ -134,22 +142,41 @@ def _run(line: str, cell: Optional[str]) -> None:
         return
     command = (line or "").strip() or ":w"
     code = cell if cell is not None and cell.strip() else None
+    if _obey(console, session, _execute(session, command, code)):
+        _active = None
+
+
+def _execute(session, command: str, code: Optional[str]):
     if session.needs_wait(command):  # the AI writes the next exercise: show its progress
         job = session.start(command, code)
         _wait(job)
-        resp = job.result()
-    else:
-        resp = session.handle(command, code)
+        return job.result()
+    return session.handle(command, code)
+
+
+def _ask(prompt: str) -> Optional[str]:
+    try:
+        return input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
+def _obey(console, session, resp) -> bool:
+    """Print a Response and obey its flags. True when the session ended."""
     console.print(style.response(resp, session))
     if resp.ask_reveal:
-        try:
-            answer = input("Reveal the solution? [y/N] ")
-        except (EOFError, KeyboardInterrupt):
-            answer = ""
+        answer = _ask("Reveal the solution? [y/N] ") or ""
         if answer.strip().lower() in ("y", "yes"):
             console.print(style.solution(session.solution()))
     if resp.clear_code:
         console.print(style.exercise_view(session))
     if resp.quit:
         console.print(Text("Session ended.", style=style.PALETTE["muted"]))
-        _active = None
+        return True
+    if resp.ask_bigger:  # the answer is the next command (":bigger yes" / ":bigger no")
+        command = bigger_answer(_ask(session.bigger_prompt()))
+        if command is None:
+            console.print(style.line(NOT_ANSWERED, "refused"))
+            return False
+        return _obey(console, session, _execute(session, command, None))
+    return False

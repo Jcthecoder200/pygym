@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .. import grader, sandbox
 from .._runner import ALLOWED_IMPORTS, import_permitted
 from ..models import Exercise
+from . import levels
 from .targets import ALIASES, TargetInfo
 
 MIN_TESTS = 3
@@ -99,10 +100,22 @@ class _NoAnnotations(ast.NodeTransformer):
         return ast.copy_location(ast.Assign(targets=[node.target], value=node.value), node)
 
 
+def _has_annotations(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.arg) and node.annotation is not None:
+            return True
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None:
+            return True
+        if isinstance(node, ast.AnnAssign):
+            return True
+    return False
+
+
 def _strip_type_hints(code: str, tree: ast.Module) -> str:
     """Small models like `from typing import List` + type hints. The student doesn't need them
-    and typing isn't an allowed import, so drop both (only when typing is imported)."""
-    if "typing" not in _imports(tree):
+    (the starter code must never show `def f(number: int) -> str:`) and typing isn't an allowed
+    import, so drop both, whenever there are any."""
+    if "typing" not in _imports(tree) and not _has_annotations(tree):
         return code
     tree.body = [n for n in tree.body
                  if not (isinstance(n, ast.Import) and all(a.name == "typing" for a in n.names))
@@ -310,6 +323,10 @@ def to_exercise(raw: str, info: TargetInfo, level: int, generator: str, *,
                               "return the result instead")
     if not _returns_value(fn):
         raise InvalidExercise(f"'{name}' must return a value")
+    # What the level means (levels.py): a level-3 one-liner is not an advanced exercise.
+    too = levels.check_level(tree, fn, level)
+    if too:
+        raise InvalidExercise(too)
     if any(isinstance(n, ast.Name) and n.id == "BASE_URL" and isinstance(n.ctx, ast.Store)
            for n in ast.walk(tree)):
         raise InvalidExercise("do not assign BASE_URL: it already holds the test server's "

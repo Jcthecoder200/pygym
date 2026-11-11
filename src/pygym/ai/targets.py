@@ -14,6 +14,7 @@ Any installed library that imports inside the sandbox works, except (pygym.sandb
 """
 from __future__ import annotations
 
+import ast
 import builtins
 import contextlib
 import difflib
@@ -21,9 +22,10 @@ import importlib
 import importlib.util
 import inspect
 import io
+import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Dict, FrozenSet, List, Optional, Sequence
+from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from .. import sandbox
 from .._runner import (FILE_MODULES, METHOD_OWNER_NAMES, NETWORK_MODULES, REMOVED_BUILTINS,
@@ -82,6 +84,22 @@ class TargetInfo:
                 or any(w in self.short.lower() for w in _FILE_WORDS))
 
     @property
+    def simple(self) -> bool:
+        """Too small for an advanced exercise on its own (bin, abs, len, str.upper): its
+        signature has at most one input (a method's own value counts) and nothing optional
+        (no default, no *args, no [optional] part), and the documentation shows no other call
+        form with more arguments ("range(start, stop[, step])"). Unknown signature: False.
+        A simple target is practised at advanced level inside a bigger task (see Session)."""
+        counted = _count_inputs(self.signature)
+        if counted is None:
+            return False
+        required, optional = counted
+        if optional or required > 1:
+            return False
+        forms = re.findall(rf"(?<![\w.]){re.escape(self.short)}\(([^()]*)\)", self.doc or "")
+        return not any(_is_longer_form(f) for f in forms)
+
+    @property
     def call_form(self) -> str:
         """How the reference solution should call the target (for the prompt)."""
         if self.kind == "builtin":
@@ -94,6 +112,52 @@ class TargetInfo:
             return (f"`{self.name}(...)` after `import {self.package}` "
                     f"(or `{alias}.{self.short}(...)` after `import {self.package} as {alias}`)")
         return f"`{self.name}(...)` after `import {self.package}`"
+
+
+def _count_inputs(signature: str) -> Optional[Tuple[int, bool]]:
+    """"bin(number, /)" -> (1, False); "sorted(iterable, /, *, key=None, reverse=False)" ->
+    (1, True); "max(iterable, *[, default=obj, key=func]) -> value" -> (1, True). The pair is
+    (required inputs, anything optional). None when the signature is unknown."""
+    start = (signature or "").find("(")
+    if start < 0:
+        return None
+    depth, end = 0, -1
+    for i in range(start, len(signature)):
+        if signature[i] in "([":
+            depth += 1
+        elif signature[i] in ")]":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end < 0:
+        return None
+    params = signature[start + 1:end]
+    try:
+        args = ast.parse(f"def _({params}): pass").body[0].args
+    except SyntaxError:
+        # a documentation form: "max(iterable, *[, default=obj, key=func])"
+        parts = [p.strip() for p in params.replace("[", ",[").split(",") if p.strip()]
+        parts = [p for p in parts if p not in ("/", "*")]
+        required = sum(1 for p in parts if not p.startswith(("*", "[")) and "=" not in p)
+        optional = "[" in params or any(p.startswith("*") or "=" in p for p in parts)
+        return required, optional
+    positional = args.posonlyargs + args.args
+    required = len(positional) - len(args.defaults)
+    required += sum(1 for d in args.kw_defaults if d is None)
+    optional = bool(args.defaults or any(d is not None for d in args.kw_defaults)
+                    or args.vararg or args.kwarg)
+    return required, optional
+
+
+def _is_longer_form(params: str) -> bool:
+    """"start, stop[, step]" (another way to call it, with more inputs) -> True; an example
+    call such as "[1, 3, 5]" or "2796202" -> False."""
+    if "," not in params and "[" not in params:
+        return False
+    names = [p.strip().lstrip("*").split("=")[0].strip() for p in re.split(r"[,\[\]]", params)]
+    names = [n for n in names if n and n != "/"]
+    return bool(names) and all(n.isidentifier() for n in names)
 
 
 class UnknownTarget(ValueError):

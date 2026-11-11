@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import sandbox
 from .._runner import ALLOWED_IMPORTS, SAFE_MODULES
+from . import levels
 from .targets import ALIASES, TargetInfo
 
 # The reply's shape. The model does NOT write expected outputs, ids or levels: we compute those.
@@ -55,23 +56,28 @@ def schema_for(info: TargetInfo) -> dict:
 SYSTEM = ("You write short Python practice exercises for first-year university students. "
           "Reply with ONE JSON object only, matching the given schema.")
 
-LEVEL_NAMES = {1: "beginner", 2: "intermediate", 3: "advanced"}
+LEVEL_NAMES = levels.LEVEL_NAMES
+# What each level means, from the same rules the validator checks (levels.check_level), with one
+# idea of a task that fits.
 LEVEL_RULES: Dict[int, str] = {
-    1: "one short function, 1-3 lines, uses the target directly on simple lists or strings",
-    2: "a small realistic task, 3-8 lines, combines the target with one other idea "
-       "(a comprehension, a dict, a condition or another built-in)",
-    3: "a tricky task, up to 15 lines, uses a less common feature of the target "
-       "(an optional argument, an edge case, nested data) and needs careful thinking",
+    level: f"{levels.describe(level)}; {levels.example_idea(level)}" for level in LEVEL_NAMES
 }
+
+# "Bigger task" mode (a simple target such as `bin` at advanced, after the student said yes):
+# the target is one step of a larger algorithmic task.
+BIGGER_TASK = ("`{target}` alone is too small for an advanced exercise, so this is a BIGGER "
+               "task: a realistic algorithmic problem (loops, conditions and a data structure "
+               "such as a dict or set, or sorting with key=) in which `{target}` is one "
+               "necessary step, used inside the loop. It still follows the advanced rule.\n")
 
 # Where the exercise's story comes from: one real-world use case of the target (see usecases.py),
 # or, when the model could not list any, this line (the model picks a situation itself).
 NO_USE_CASE = "a realistic everyday task where `{target}` is the natural tool (pick one yourself)"
 
-USER_TEMPLATE = """Write one exercise that teaches `{target}`.
+USER_TEMPLATE = """Write one exercise that {teaches}.
 
 Level: {level_name} ({level}/3): {level_rule}.
-Real-world situation: {situation}.
+{bigger_block}Real-world situation: {situation}.
 The situation must be one where `{target}` is the natural tool, so the student learns to \
 recognise this kind of problem as a job for `{target}`.
 
@@ -86,6 +92,7 @@ Rules:
   units...). No hidden rules: a student who reads only question_text must be able to pass every test.
 - function_signature is exactly the def line, e.g. "def total(prices):".
 - reference_solution is the full correct function and MUST call {call_form}.
+  It MUST follow the {level_name} rule above.
 - Put any import on its own line inside reference_solution. Only these imports are allowed: {imports}.
 - No input(), print(){no_io} or randomness. No type hints. Return a value.
 - tests: 4 to 6 test cases. Each test case maps every parameter name to its value,
@@ -94,7 +101,8 @@ Rules:
   The test cases must give different results.
 - hint: one sentence that points at `{target}` without giving the answer.
 {library_block}{avoid_block}
-Example of the exact shape (about `max`, NOT your target):
+Example of the exact shape only (about `max`, NOT your target; it is a beginner one-liner,
+your solution follows the {level_name} rule):
 {fewshot}"""
 
 FEWSHOT = json.dumps({
@@ -135,11 +143,11 @@ REPAIR_TEMPLATE = ("That exercise was rejected: {problem}. "
 
 
 def build_messages(info: TargetInfo, level: int, *, use_case: Optional[str] = None,
-                   avoid: Sequence[str] = (), repair: Optional[Tuple[str, str]] = None
-                   ) -> List[dict]:
+                   avoid: Sequence[str] = (), repair: Optional[Tuple[str, str]] = None,
+                   bigger: bool = False) -> List[dict]:
     """Chat messages for one attempt. use_case: the real-world situation (None = let the model
     pick one where the target is the natural tool). repair = (previous raw reply, why it was
-    rejected)."""
+    rejected). bigger: the target is one step of a bigger task (advanced level only)."""
     level = level if level in LEVEL_NAMES else 1
     imports = sorted(ALLOWED_IMPORTS | set(info.allowed_imports))
     alias = ALIASES.get(info.package)
@@ -164,8 +172,12 @@ def build_messages(info: TargetInfo, level: int, *, use_case: Optional[str] = No
     if avoid:
         lines = "\n".join(f"  - {a}" for a in list(avoid)[:5])
         avoid_block = f"- Do not repeat these earlier exercises; write something different:\n{lines}\n"
+    bigger = bigger and level == 3
     user = USER_TEMPLATE.format(
         target=info.name, level=level, level_name=LEVEL_NAMES[level], level_rule=LEVEL_RULES[level],
+        teaches=(f"practises `{info.name}` inside a bigger task" if bigger
+                 else f"teaches `{info.name}`"),
+        bigger_block=BIGGER_TASK.format(target=info.name) if bigger else "",
         situation=use_case or NO_USE_CASE.format(target=info.name),
         signature=info.signature or "(see documentation)", doc=info.doc or "(no documentation)", call_form=info.call_form,
         imports=", ".join(imports), avoid_block=avoid_block, fewshot=FEWSHOT,

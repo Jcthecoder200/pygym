@@ -32,7 +32,7 @@ from rich.style import Style
 from rich.text import Text
 
 from . import style
-from .session import COMMANDS, SHORT
+from .session import COMMANDS, NOT_ANSWERED, SHORT, bigger_answer
 from .style import PALETTE
 
 NORMAL, INSERT, COMMAND, PAGER, PROMPT = "NORMAL", "INSERT", "COMMAND", "PAGER", "PROMPT"
@@ -41,6 +41,8 @@ INDENT = "    "  # Tab and auto-indent always use 4 spaces, never a tab characte
 START_HINT = "i to edit · Esc then :w to check · :intro for all commands"
 CTRL_C_MESSAGE = "Type :q to quit, :q! to quit without checking"
 REVEAL_PROMPT = "Reveal the solution? [y/N] "
+# session.BIGGER_PROMPT, when it is too wide for the bottom line
+BIGGER_SHORT = "Practise {name} inside a bigger task? [Y/n] "
 RESULTS_HELP = "-- RESULTS -- j/k Space: scroll · q: close · Esc: back to the code"
 NO_RESULTS_WINDOW = "No results window: :w checks your code, :out shows the last results"
 # The results window takes at most this share of the screen (the code keeps the rest).
@@ -262,6 +264,9 @@ class Editor:
         self.pager_text = ""
         self.pager_top = 0
         self.after_pager = NORMAL  # the mode to return to when the pager closes
+        # what PROMPT mode asks: "reveal" (the solution, [y/N]) or "bigger" (practise the
+        # function inside a bigger task, [Y/n]; the answer is sent as :bigger yes / :bigger no)
+        self.prompt_kind = "reveal"
         self.buffer = Buffer()
         self.intro_visible = True  # the start screen in the empty area, until the code first changes
         # the results window: the GradeResult it shows, open or not, scrolled to, focused or not
@@ -273,6 +278,10 @@ class Editor:
         self.load_exercise()
         self.message, self.message_kind = START_HINT, ""
         self._show_notice()
+        question = getattr(session, "question", None)
+        resp = question() if question is not None else None
+        if resp is not None:  # started at level 3 with a function too small for it: ask now
+            self._apply(resp)
 
     # -- helpers --
 
@@ -551,15 +560,20 @@ class Editor:
         self.mode = NORMAL
         if not typed.strip():
             return  # a bare ':' + Enter does nothing, like Neovim
+        self._execute(":" + typed)
+
+    def _execute(self, command: str) -> None:
+        """Send a command with the buffer's code and apply the Response (or, when the AI writes
+        the next exercise, wait for it with the progress line)."""
         if self.background:
-            job = self.session.start(":" + typed, self.buffer.text)
+            job = self.session.start(command, self.buffer.text)
             if not job.done:  # the AI writes the next exercise: show its progress meanwhile
                 self.job = job
                 self.message, self.message_kind = "", ""
                 return
             resp = job.result()
         else:
-            resp = self.session.handle(":" + typed, self.buffer.text)
+            resp = self.session.handle(command, self.buffer.text)
         self._apply(resp)
 
     def _apply(self, resp) -> None:
@@ -578,7 +592,8 @@ class Editor:
         if resp.quit:
             self.done = True
             self.farewell = ("Hint: " if resp.kind == "hint" else "") + resp.text
-        elif resp.ask_reveal:
+        elif resp.ask_reveal or resp.ask_bigger:
+            self.prompt_kind = "bigger" if resp.ask_bigger else "reveal"
             if self.mode == PAGER:
                 self.after_pager = PROMPT
             else:
@@ -631,8 +646,27 @@ class Editor:
         if self.pasting:
             return
         self.mode = NORMAL
+        if self.prompt_kind == "bigger":
+            # [Y/n]: Enter or y = yes, n = no, any other key (Esc...) = not answered
+            typed = {"ENTER": "", "y": "y", "Y": "y", "n": "n", "N": "n"}.get(key)
+            command = bigger_answer(typed)
+            if command is None:
+                self.message, self.message_kind = NOT_ANSWERED, "refused"
+            else:
+                self._execute(command)
+            return
         if key in ("y", "Y"):
             self.open_pager("Solution", self.session.solution(), kind="solution")
+
+    def prompt_text(self, width: int = 0) -> str:
+        """The question PROMPT mode shows on the bottom line (a shorter one when the full
+        question does not fit `width`, so [Y/n] stays visible)."""
+        if self.prompt_kind == "bigger":
+            text = self.session.bigger_prompt()
+            if width and len(text) > width:
+                text = BIGGER_SHORT.format(name=self.session.name)
+            return text
+        return REVEAL_PROMPT
 
 
 # ----- render --------------------------------------------------------------------------------
@@ -821,7 +855,7 @@ def _editor_frame(ed: Editor, width: int, height: int, no_color: bool = False):
     elif ed.mode == PROMPT:
         if ed.message:  # keep the message visible above the question, like Neovim
             status_row = _message(ed, width)
-        line = _clip(REVEAL_PROMPT, last)
+        line = _clip(ed.prompt_text(last), last)
         bottom = Text(line, style=PALETTE["prompt"])
         cursor = (height, len(line) + 1)
     elif ed.mode == INSERT and not ed.message:

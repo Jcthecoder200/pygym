@@ -1,12 +1,32 @@
 """Shared data contract. Every component (content, grader, UI) talks through these."""
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List, Optional
 
 
 # Built-in types whose methods can be targets ("str.join"): no import needed.
 _METHOD_OWNERS = {"str", "list", "dict", "set", "tuple", "int", "float", "bytes"}
+
+
+def plain_signature(signature: str) -> str:
+    """The def line without type hints: "def f(number: int) -> str:" -> "def f(number):".
+    Students never see type hints; anything that does not parse is returned as it is."""
+    try:
+        fn = ast.parse(signature.rstrip() + "\n    pass").body[0]
+    except (SyntaxError, ValueError, IndexError):
+        return signature
+    if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return signature
+    args = fn.args
+    params = args.posonlyargs + args.args + args.kwonlyargs
+    params += [a for a in (args.vararg, args.kwarg) if a is not None]
+    if fn.returns is None and all(a.annotation is None for a in params):
+        return signature
+    for a in params:
+        a.annotation = None
+    return f"def {fn.name}({ast.unparse(args)}):"
 
 
 @dataclass
@@ -45,7 +65,7 @@ class Exercise:
     def starter_code(self) -> str:
         """What every front-end pre-fills: the needed import (if any) above the def line."""
         head = "\n".join(self.import_lines)
-        return (head + "\n\n" if head else "") + self.function_signature
+        return (head + "\n\n" if head else "") + plain_signature(self.function_signature)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Exercise":
@@ -118,4 +138,7 @@ class Response:
     quit: bool = False          # the front-end should close now
     ask_reveal: bool = False    # ask the student whether to show the solution (after a failed :wq)
     clear_code: bool = False    # a new exercise started: reset the code box / buffer
+    # ask "Practise it inside a bigger task? [Y/n]" (session.bigger_prompt()) and send the answer
+    # as the next command: session.bigger_answer(text) -> ":bigger yes" / ":bigger no" / None
+    ask_bigger: bool = False
     result: Optional[GradeResult] = None  # set for :w / :wq, and for :out after a check

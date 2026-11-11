@@ -12,7 +12,7 @@ from rich.console import Console, RenderableType
 from rich.text import Text
 
 from . import style
-from .session import Session, is_command_line
+from .session import NOT_ANSWERED, Session, bigger_answer, is_command_line
 
 # A line counts as a command only if the whole line is one (after trimming spaces): ":" followed
 # by letters/"!", or ":level <one word>" (session.is_command_line). Known commands run; other
@@ -39,10 +39,51 @@ def run_text(session: Session, input_fn: Callable[[str], str] = input,
     show(style.exercise_view(session))  # with Session.notice (AI warning / fallback note) below
     buffer: List[str] = []  # lines typed since the last :w
 
-    while True:
+    def execute(command: str, code: Optional[str]):
+        job = session.start(command, code)  # done at once unless the AI writes a new exercise
+        if not job.done:
+            if console is not None:
+                style.wait_with_bar(job, console)
+            else:
+                try:
+                    job.wait()
+                except KeyboardInterrupt:
+                    job.cancel()
+        return job.result()
+
+    def ask(prompt: str) -> Optional[str]:
         try:
-            line = input_fn(">>> " if not buffer else "... ")
+            return input_fn(prompt)
         except (EOFError, KeyboardInterrupt):
+            return None
+
+    def obey(resp) -> bool:
+        """Show a Response and obey its flags. True when the session is over."""
+        show(style.response(resp, session))
+        if resp.ask_reveal:
+            answer = ask("Reveal the solution? [y/N] ") or ""
+            if answer.strip().lower() in ("y", "yes"):
+                show(style.solution(session.solution()))
+        if resp.clear_code:
+            buffer.clear()
+            show(style.exercise_view(session))
+        if resp.quit:
+            return True
+        if resp.ask_bigger:  # the answer is the next command (":bigger yes" / ":bigger no")
+            command = bigger_answer(ask(session.bigger_prompt()))
+            if command is None:
+                show(style.line(NOT_ANSWERED, "refused"))
+                return False
+            return obey(execute(command, None))
+        return False
+
+    question = session.question()  # started at level 3 with a function too small for it
+    if question is not None and obey(question):
+        return
+
+    while True:
+        line = ask(">>> " if not buffer else "... ")
+        if line is None:
             show(Text("\nBye!", style=style.PALETTE["muted"]))
             return
 
@@ -53,31 +94,10 @@ def run_text(session: Session, input_fn: Callable[[str], str] = input,
 
         # Current code: what was typed since the last :w; None = "no new code" (Session uses the saved code).
         code = "\n".join(buffer) if buffer else None
-        job = session.start(stripped, code)  # done at once unless the AI writes a new exercise
-        if not job.done:
-            if console is not None:
-                style.wait_with_bar(job, console)
-            else:
-                try:
-                    job.wait()
-                except KeyboardInterrupt:
-                    job.cancel()
-        resp = job.result()
+        resp = execute(stripped, code)
         if stripped in (":w", ":wq"):
-            buffer = []  # the next lines start a fresh attempt
-        show(style.response(resp, session))
-
-        if resp.ask_reveal:
-            try:
-                answer = input_fn("Reveal the solution? [y/N] ")
-            except (EOFError, KeyboardInterrupt):
-                answer = ""
-            if answer.strip().lower() in ("y", "yes"):
-                show(style.solution(session.solution()))
-        if resp.clear_code:
-            buffer = []
-            show(style.exercise_view(session))
-        if resp.quit:
+            buffer.clear()  # the next lines start a fresh attempt
+        if obey(resp):
             return
 
 

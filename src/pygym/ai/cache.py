@@ -6,6 +6,7 @@ Broken files are treated as empty; nothing here ever raises.
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import random
@@ -17,6 +18,7 @@ from typing import Iterable, List, Optional
 
 from .. import grader, progress
 from ..models import Exercise
+from . import levels
 from .validate import names_other_function
 
 VERSION = 1
@@ -66,13 +68,27 @@ def add(ex: Exercise, keep: int = KEEP) -> None:
         pass
 
 
+def fits_level(ex: Exercise) -> bool:
+    """Does the reference solution follow the rules of its level (levels.check_level)?
+    Exercises saved by older pygym versions may not (a level-3 one-liner)."""
+    try:
+        tree = ast.parse(ex.reference_solution)
+    except SyntaxError:
+        return False
+    fn = next((n for n in tree.body if isinstance(n, ast.FunctionDef)
+               and n.name == ex.function_name), None)
+    return fn is not None and levels.check_level(tree, fn, ex.difficulty) is None
+
+
 def pick(target: str, level: int, avoid_ids: Iterable[str] = ()) -> Optional[Exercise]:
-    """A random saved exercise for this target and level that isn't in avoid_ids.
-    Prefers ones the student hasn't solved yet."""
+    """A random saved exercise for this target and level that isn't in avoid_ids and fits the
+    level's rules. Prefers ones the student hasn't solved yet."""
     avoid = set(avoid_ids or ())
-    # Older pygym versions saved exercises whose question names another function than the code.
+    # Older pygym versions saved exercises whose question names another function than the code,
+    # or that do not fit their level.
     pool = [e for e in load(target) if e.difficulty == level and e.id not in avoid
-            and not names_other_function(e.question_text, e.function_name, e.target_function)]
+            and not names_other_function(e.question_text, e.function_name, e.target_function)
+            and fits_level(e)]
     if not pool:
         return None
     solved = progress.solved_ids()

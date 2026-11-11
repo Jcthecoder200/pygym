@@ -2,20 +2,29 @@
 
   python tools/validate_exercises.py          check every exercise (also: expected_outputs must exist)
   python tools/validate_exercises.py --fill   recompute expected_outputs from reference solutions
+  python tools/validate_exercises.py --levels report the exercises whose reference solution does
+                                              not follow the level rules (pygym/ai/levels.py);
+                                              report only, always exits 0
 
 An exercise fails when a required field is missing, an id is used twice, the difficulty is not 1-3,
 `expected_outputs` is missing or has a different length than `test_inputs` (normal mode only; --fill
 recomputes it), the reference solution crashes, or the reference solution does not pass `grade()`.
+
+The level rules (beginner: no if/else or loop; intermediate: a loop and a condition; advanced:
+plus a data structure or algorithm) are enforced on AI-generated exercises only. Hand-written
+exercises are reviewed by people, so --levels only lists the ones that differ, for review.
 """
+import ast
 import builtins
 import json
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from pygym.grader import grade, run_in_sandbox  # noqa: E402
 from pygym.models import Exercise  # noqa: E402
+from pygym.ai import levels  # noqa: E402
 
 PATH = Path(__file__).resolve().parents[1] / "src" / "pygym" / "data" / "exercises.json"
 REQUIRED = ["id", "target_function", "difficulty", "question_text", "function_name",
@@ -68,7 +77,41 @@ def field_problems(d: dict, need_expected: bool = True) -> List[str]:
     return problems
 
 
+def level_report(data: List[dict]) -> List[Tuple[str, int, str]]:
+    """(id, level, what is missing) for every exercise whose reference solution does not follow
+    the rules of its level (levels.check_level; the words come from levels.gaps)."""
+    found = []
+    for d in data:
+        label, level = d.get("id", "?"), d.get("difficulty")
+        try:
+            tree = ast.parse(d.get("reference_solution", ""))
+        except SyntaxError as e:
+            found.append((label, level, f"reference solution does not parse ({e.msg})"))
+            continue
+        fn = next((n for n in tree.body if isinstance(n, ast.FunctionDef)
+                   and n.name == d.get("function_name")), None)
+        if fn is None:
+            found.append((label, level, "reference solution does not define function_name"))
+            continue
+        if levels.check_level(tree, fn, level):
+            found.append((label, level, "; ".join(levels.gaps(tree, fn, level))))
+    return found
+
+
+def print_level_report() -> int:
+    data = json.loads(PATH.read_text(encoding="utf-8"))
+    found = level_report(data)
+    for label, level, problem in found:
+        name = levels.LEVEL_NAMES.get(level, "?")
+        print(f"LEVEL {label} ({level} {name}): {problem}")
+    print(f"{len(found)} of {len(data)} exercises do not follow the level rules "
+          "(report only: hand-written exercises are reviewed by people; see docs/AI_MODE.md).")
+    return 0
+
+
 def main() -> int:
+    if "--levels" in sys.argv:
+        return print_level_report()
     fill = "--fill" in sys.argv
     data = json.loads(PATH.read_text(encoding="utf-8"))
     bad, seen = 0, set()

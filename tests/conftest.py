@@ -8,14 +8,19 @@ replies all go to the exercise the test is about:
     use the `real_prefetch_setting` fixture.
   - the use-case call (one model call per target before its first exercise): every target gets
     STUB_USE_CASES; the `real_usecases` fixture brings the real lookup back.
+
+The level rules (ai/levels.py: a level-3 reference needs loops, conditions and a data structure)
+are off too, so the many small fake replies of the older tests (one-liners at level 2) keep
+testing what they test; the `real_levels` fixture turns them on (every level test uses it).
 """
 import pytest
 
 from pygym import session as session_module
-from pygym.ai import providers, usecases
+from pygym.ai import levels, providers, usecases
 
 STUB_USE_CASES = ["a shop's daily sales", "scores of a class test", "temperatures of a week"]
 _REAL_LOAD = usecases.load
+_REAL_CHECK_LEVEL = levels.check_level
 _REAL_PREFETCH_SETTING = session_module._prefetch_setting
 
 
@@ -30,6 +35,13 @@ def _quiet_background(monkeypatch):
     monkeypatch.setattr(session_module, "_prefetch_setting", lambda: False)
     monkeypatch.setattr(usecases, "load", lambda target: list(STUB_USE_CASES))
     monkeypatch.setattr(providers, "_thinking", {})
+    monkeypatch.setattr(levels, "check_level", lambda tree, fn, level: None)
+
+
+@pytest.fixture
+def real_levels(monkeypatch):
+    """The real level rules (levels.check_level) in the validator."""
+    monkeypatch.setattr(levels, "check_level", _REAL_CHECK_LEVEL)
 
 
 @pytest.fixture
