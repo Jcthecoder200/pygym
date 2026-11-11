@@ -1,5 +1,6 @@
 """ai.usecases and how the engine uses them: one model call per target lists real-world
 situations, they are checked, saved and taken in turns; each exercise is set in one of them."""
+import importlib.util
 import json
 import random
 import urllib.request
@@ -220,7 +221,11 @@ def test_the_ideas_stage_is_reported_first_and_only_when_asking(use):
 
 # ----- the exercise prompt ------------------------------------------------------------------------
 
-@pytest.mark.parametrize("target", ["zip", "numpy.cumsum", "statistics.median", "str.join"])
+@pytest.mark.parametrize("target", [
+    "zip",
+    pytest.param("numpy.cumsum", marks=pytest.mark.skipif(
+        importlib.util.find_spec("numpy") is None, reason="numpy is not installed")),
+    "statistics.median", "str.join"])
 def test_the_prompt_has_the_use_case_and_the_no_hidden_rules_rule(target):
     info = resolve(target)
     case = "a bank account balance after each transaction"

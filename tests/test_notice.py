@@ -210,7 +210,10 @@ def test_help_for_a_method():
 
 def test_help_for_a_class_in_a_module():
     text = session_for("itertools.chain").help()
-    assert text.startswith("itertools.chain(*iterables)\n\n")
+    # Python 3.13+ gives a signature ("itertools.chain(*iterables)" first); older versions keep
+    # it inside the docstring ("chain(*iterables) --> chain object")
+    assert text.split("\n", 1)[0] in ("itertools.chain(*iterables)",
+                                      "chain(*iterables) --> chain object")
     assert "until it is exhausted" in text
 
 
