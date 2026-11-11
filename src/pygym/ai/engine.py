@@ -110,14 +110,74 @@ def _level(difficulty) -> int:
     return level if level in (1, 2, 3) else 1
 
 
+# Why a reply was rejected, in a few words for a progress line ("try 1 rejected: crashed on its
+# tests"). First match wins; the full reason still goes back to the model and into the log.
+_SHORT_REASONS = (
+    ("JSON", "not valid JSON"),
+    ("crashed", "crashed on its tests"),
+    ("ran too long", "ran too long"),
+    ("really call", "did not really use the function"),
+    ("must call", "did not use the function"),
+    ("repeated an earlier", "repeated an earlier exercise"),
+    ("own tests", "failed its own tests"),
+    ("different results", "gave different results"),
+    ("syntax error", "had a syntax error"),
+    ("test case", "had unusable tests"),
+    ("not allow", "used something not allowed"),
+    ("blocked", "used something not allowed"),
+    ("is missing", "left out a part"),
+)
+
+# The stages of on_progress events, in the order they usually come.
+STAGES = ("asking", "checking", "rejected", "done", "fallback")
+
+
+def short_reason(problem: str) -> str:
+    """'the reference solution crashed on the tests: IndexError ...' -> 'crashed on its tests'."""
+    for needle, short in _SHORT_REASONS:
+        if needle in problem:
+            return short
+    return "not usable"
+
+
+ProgressCallback = Callable[[Dict[str, object]], None]
+
+
+def _reporter(on_progress: Optional[ProgressCallback], budget: float):
+    """report(stage, attempt, detail): builds the event dict and calls on_progress with it."""
+    start = clock()
+
+    def report(stage: str, attempt: int = 0, detail: str = "") -> None:
+        if on_progress is None:
+            return
+        event = {"attempt": attempt, "max_attempts": MAX_ATTEMPTS,
+                 "elapsed": round(max(0.0, clock() - start), 3), "budget": float(budget),
+                 "stage": stage, "detail": detail}
+        try:
+            on_progress(event)
+        except Exception:  # noqa: BLE001  (a broken display must not stop the generation)
+            pass           # (a BaseException, e.g. Session's JobCancelled, does stop it)
+    return report
+
+
 def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] = None,
                       settings: Optional[config.Settings] = None,
-                      timeout: float = 20.0) -> Exercise:
+                      timeout: float = 20.0,
+                      on_progress: Optional[ProgressCallback] = None) -> Exercise:
     """A new, validated exercise about `target` at level `difficulty` (1-3).
 
     Up to 4 model calls within `timeout` seconds (a rejected reply is sent back with the reason,
     so the model can fix it). If none works, an earlier saved exercise for the same target and
     level is reused. Otherwise raises GenerationUnavailable with a one-line reason.
+
+    on_progress (optional) is called on this thread with a dict at every step:
+        {"attempt": 2, "max_attempts": 4, "elapsed": 7.1, "budget": 20.0,
+         "stage": "asking" | "checking" | "rejected" | "done" | "fallback", "detail": "..."}
+    "asking": attempt n is sent to the model; "checking": its reply is being validated (the
+    sandbox runs it); "rejected": detail says why in a few words (short_reason); "done": the
+    exercise is ready; "fallback": no new exercise, detail says what happens instead. A model
+    gives no progress of its own, so a bar can only fill against elapsed / budget. An Exception
+    raised by on_progress is ignored; a BaseException (a cancel) ends the generation.
     """
     if _turned_off():
         raise GenerationUnavailable("AI mode is turned off (PYGYM_NO_AI)")
@@ -127,19 +187,25 @@ def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] 
         raise GenerationUnavailable(str(e)) from None
     level = _level(difficulty)
     avoid = set(avoid_ids or ())
+    report = _reporter(on_progress, timeout)
     try:
-        return _generate(info, level, avoid, settings or config.load(), timeout)
+        return _generate(info, level, avoid, settings or config.load(), timeout, report)
     except GenerationUnavailable:
         raise
     except Exception as e:  # noqa: BLE001  (a bug here must not crash a lesson)
         raised = GenerationUnavailable(f"the AI engine failed ({type(e).__name__}: {e})")
         cached = cache.pick(info.name, level, avoid)
         if cached is not None:
+            report("fallback", 0, "using an earlier saved exercise")
             return cached
+        report("fallback", 0, "the AI engine failed")
         raise raised from e
 
 
-def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float) -> Exercise:
+def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float,
+              report=None) -> Exercise:
+    if report is None:
+        report = _reporter(None, timeout)
     deadline = clock() + max(float(timeout), 0.0)
 
     def time_left() -> float:
@@ -161,6 +227,7 @@ def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float
         messages = build_messages(info, level, scenario=_scenario(rng), focus=focus[tries % len(focus)],
                                   avoid=_avoid_lines(earlier, avoid), repair=repair)
         tries += 1
+        report("asking", tries)
         try:
             raw = provider.chat(messages, schema_for(info),
                                 temperature=min(BASE_TEMPERATURE + 0.1 * fresh_retries, 1.2),
@@ -169,6 +236,7 @@ def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float
         except ProviderError as e:
             stop_reason = str(e)
             break                                   # server down or model missing: stop now
+        report("checking", tries)
         try:
             ex = to_exercise(raw, info, level, generator,
                              sandbox_timeout=min(SANDBOX_TIMEOUT, max(time_left(), 1.0)))
@@ -177,17 +245,22 @@ def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float
         except InvalidExercise as e:
             problem = e.problem
             cache.log_rejected(info.name, level, generator, problem, raw)
+            report("rejected", tries, short_reason(problem))
             if e.repairable:
                 repair = (raw, e.problem)
             else:
                 repair, fresh_retries = None, fresh_retries + 1
             continue
         cache.add(ex)
+        report("done", tries)
         return ex
 
     cached = cache.pick(info.name, level, avoid)
     if cached is not None:
+        report("fallback", tries, "using an earlier saved exercise")
         return cached
+    report("fallback", tries, "the model is not reachable" if stop_reason else
+           "no valid exercise from the model" if problem else "no time left to ask the model")
     if stop_reason:
         raise GenerationUnavailable(stop_reason)
     if problem:

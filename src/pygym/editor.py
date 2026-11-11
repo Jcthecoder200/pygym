@@ -7,7 +7,9 @@ The parts, from pure logic to the terminal:
   Buffer       lines + cursor + edit operations
   Editor       the state machine (modes NORMAL / INSERT / COMMAND / PAGER / PROMPT); feed(key).
                Below the code it can show the results window (the tests of the last :w), like
-               Neovim's quickfix window: Ctrl-W w moves the focus into it to scroll
+               Neovim's quickfix window: Ctrl-W w moves the focus into it to scroll. While the
+               AI writes the next exercise (background=True) the message line shows its
+               progress; tick() redraws it and applies the result, Ctrl-C cancels
   render()     turns an Editor into one screen frame (a string of text + ANSI codes); each row
                is a rich.text.Text coloured from style.PALETTE, the code highlighted by Rich
   parse_keys() turns raw bytes from the keyboard into key names ("a", "ESC", "UP", ...)
@@ -46,6 +48,7 @@ RESULTS_MAX_SHARE = 0.4
 RESULTS_PRINT_LINES = 3  # print() lines shown under a test before "… n more lines"
 MIN_CODE_ROWS = 3        # the code area never gets smaller than this for the results window
 ESC_TIMEOUT = 0.05  # seconds to wait after a lone ESC byte (Neovim's ttimeoutlen)
+TICK = 0.1          # seconds between redraws of the progress line while the AI writes
 # The question can be longer than one screen line. It is wrapped onto at most this many rows
 # (the last row ends with "…" if it still does not fit). Set to 1 for a single truncated line.
 HEADER_MAX_ROWS = 3
@@ -235,8 +238,15 @@ def _pager_lines(text: str, width: int) -> List[str]:
 class Editor:
     """All editor behaviour, driven by feed(key). No terminal needed (tests use it directly)."""
 
-    def __init__(self, session, width: int = 80, height: int = 24) -> None:
+    def __init__(self, session, width: int = 80, height: int = 24, *,
+                 background: bool = False) -> None:
+        """background=True (what run_editor uses): a command that makes the AI write a new
+        exercise (:s, :level 2) runs in a background thread while the message line shows its
+        progress; the run loop calls tick() to redraw it and to finish it. False (the default,
+        for tests and simple callers): every command blocks until done."""
         self.session = session
+        self.background = background
+        self.job = None       # the session.Job writing the next exercise (None = not waiting)
         self.width, self.height = width, height
         self.mode = NORMAL
         self.message = ""     # the bottom line in NORMAL mode (and over -- INSERT -- until a key)
@@ -356,7 +366,37 @@ class Editor:
 
     # -- input --
 
+    def tick(self) -> bool:
+        """Called by the run loop about 10 times a second. While a job runs: True (redraw the
+        progress line); when it has finished, apply its Response (the new exercise replaces the
+        buffer only now) and return True once more. False when there is nothing to do."""
+        if self.job is None:
+            return False
+        if self.job.done:
+            job, self.job = self.job, None
+            self._apply(job.result())
+            self._follow_cursor()
+        return True
+
+    def _cancel_job(self) -> None:
+        """Ctrl-C while the next exercise is being written: keep the current one."""
+        job, self.job = self.job, None
+        job.cancel()
+        resp = job.result()  # the session's "Cancelled" Response, or the outcome if it was too late
+        self._apply(resp)
+
     def feed(self, key: str) -> None:
+        if self.job is not None:
+            # Waiting for the next exercise: keys are ignored (the buffer must not change under
+            # the new exercise), except Ctrl-C, which cancels and keeps the current exercise.
+            if key == "CTRL_C":
+                self._cancel_job()
+                self._follow_cursor()
+            elif key == "PASTE_START":
+                self.pasting = True
+            elif key == "PASTE_END":
+                self.pasting = False
+            return
         if key == "PASTE_START":
             self.pasting = True
         elif key == "PASTE_END":
@@ -511,7 +551,19 @@ class Editor:
         self.mode = NORMAL
         if not typed.strip():
             return  # a bare ':' + Enter does nothing, like Neovim
-        resp = self.session.handle(":" + typed, self.buffer.text)
+        if self.background:
+            job = self.session.start(":" + typed, self.buffer.text)
+            if not job.done:  # the AI writes the next exercise: show its progress meanwhile
+                self.job = job
+                self.message, self.message_kind = "", ""
+                return
+            resp = job.result()
+        else:
+            resp = self.session.handle(":" + typed, self.buffer.text)
+        self._apply(resp)
+
+    def _apply(self, resp) -> None:
+        """Show a Response and obey its flags (after a command, or when a job finishes)."""
         if resp.kind == "results":
             self._toggle_results(resp)
             return
@@ -595,7 +647,7 @@ _PAGER_COLORS = {"help": PALETTE["help"], "solution": PALETTE["solution"]}
 # With NO_COLOR the status line falls back to reverse video, so it still stands out.
 _NO_COLOR_STYLES = {"mode_normal": "bold reverse", "mode_insert": "bold reverse",
                     "mode_command": "bold reverse", "status_bar": "reverse",
-                    "status_pos": "reverse", "results_bar": "reverse",
+                    "status_pos": "reverse", "status_level": "reverse", "results_bar": "reverse",
                     "results_bar_focus": "bold reverse", "results_pass_block": "bold",
                     "results_fail_block": "bold"}
 _COLOR_SYSTEMS = {"standard": ColorSystem.STANDARD, "256": ColorSystem.EIGHT_BIT,
@@ -675,13 +727,19 @@ def _clip(text: str, width: int) -> str:
     return text[:max(0, width)]
 
 
-def _status_line(label: str, middle: str, right: str, width: int, no_color: bool = False) -> Text:
-    """The mode block, a bar with the exercise id in the middle, and row,col on the right."""
+def _status_line(label: str, middle: str, right: str, width: int, no_color: bool = False,
+                 level: str = "") -> Text:
+    """The mode block, a bar with the exercise id in the middle, the level (●○○ 2/3) and row,col
+    on the right. The level is left out when the screen is too narrow for it."""
     left, right = f" {label} ", f" {right} "
-    inner = width - len(left) - len(right)
+    level = f" {level} " if level else ""
+    if level and width - len(left) - len(right) - len(level) < len(middle) + 2:
+        level = ""
+    inner = width - len(left) - len(right) - len(level)
     mid = middle.center(inner) if inner >= len(middle) + 2 else _clip(middle, inner).ljust(max(inner, 0))
     line = Text.assemble((left, _style(_MODE_STYLES.get(label, "mode_normal"), no_color)),
                          (mid, _style("status_bar", no_color)),
+                         (level, _style("status_level", no_color)),
                          (right, _style("status_pos", no_color)))
     line.truncate(width)
     return line
@@ -744,14 +802,18 @@ def _editor_frame(ed: Editor, width: int, height: int, no_color: bool = False):
         rows.extend(_results_window(ed, width, window, focus, no_color))
 
     label = {INSERT: "INSERT", COMMAND: "COMMAND"}.get(ed.mode, NORMAL)
+    level = style.level_badge(ed.session) if hasattr(ed.session, "level") else ""
     status_row = _status_line(label, ed.session.exercise.id, f"{b.row + 1},{b.col + 1}", width,
-                              no_color)
+                              no_color, level)
 
     cursor = (header + (b.row - top) + 1, min(width, gutter + b.col + 1))
     if focus:  # on the first row of the results window, like the cursor in Neovim's quickfix
         cursor = (header + body + 2, 1)
     last = width - 1  # never write the bottom-right cell (some terminals scroll)
-    if ed.mode == COMMAND:
+    if ed.job is not None:  # the AI writes the next exercise: its progress on the message line
+        bottom = style.progress_line(ed.job.progress, ed.job.elapsed, last)
+        cursor = (height, min(last, bottom.cell_len) + 1)
+    elif ed.mode == COMMAND:
         line = ":" + ed.cmdline
         line = line[-last:] if len(line) > last else line
         bottom = Text(line)
@@ -1093,7 +1155,7 @@ def _draw(editor: Editor, color_system: Optional[str] = "256") -> None:
 def run_editor(session) -> None:
     """Run the editor in the current terminal until a Response says quit."""
     size = shutil.get_terminal_size()
-    editor = Editor(session, size.columns, size.lines)
+    editor = Editor(session, size.columns, size.lines, background=True)
     if is_windows():
         _run_windows(editor)
     else:
@@ -1114,6 +1176,7 @@ def _run_windows(editor: Editor) -> None:
     try:
         _write("\x1b[?1049h\x1b[2J")
         _draw(editor, color_system)
+        last_tick = time.monotonic()
         while not editor.done:
             try:
                 if not msvcrt.kbhit():
@@ -1123,6 +1186,9 @@ def _run_windows(editor: Editor) -> None:
                         last = size
                         _write("\x1b[2J")
                         _draw(editor, color_system)
+                    elif time.monotonic() - last_tick >= TICK and editor.tick():
+                        last_tick = time.monotonic()  # the progress line, ~10 times a second
+                        _draw(editor, color_system)
                     continue
                 keys = read_windows_keys(msvcrt)
             except KeyboardInterrupt:
@@ -1131,6 +1197,7 @@ def _run_windows(editor: Editor) -> None:
                 editor.feed(key)
                 if editor.done:
                     break
+            editor.tick()  # a job that finished at once is applied before drawing
             _draw(editor, color_system)
     finally:
         _write("\x1b[0m\x1b[?25h\x1b[?1049l")
@@ -1160,11 +1227,14 @@ def _run_posix(editor: Editor) -> None:
         _write("\x1b[?1049h\x1b[?2004h\x1b[2J")
         _draw(editor, color_system)
         while not editor.done:
-            ready, _, _ = select.select([fd], [], [], 0.2)
+            ready, _, _ = select.select([fd], [], [], TICK if editor.job is not None else 0.2)
             if not ready:
-                if resized:
+                busy = editor.tick()  # the progress line moves ~10 times a second
+                was_resized = bool(resized)
+                if was_resized:
                     del resized[:]
                     _write("\x1b[2J")
+                if busy or was_resized:
                     _draw(editor, color_system)
                 continue
             data = os.read(fd, 4096)
@@ -1180,6 +1250,7 @@ def _run_posix(editor: Editor) -> None:
                 editor.feed(key)
                 if editor.done:
                     break
+            editor.tick()  # a job that finished at once is applied before drawing
             if resized:
                 del resized[:]
                 _write("\x1b[2J")

@@ -32,9 +32,8 @@ from rich.text import Text
 from . import __version__, ai, config, loader, sandbox, style, ui
 from ._runner import denied_reason
 from .loader import ExerciseUnavailable
-from .session import Session
-
-LEVELS: Dict[int, str] = {1: "beginner", 2: "intermediate", 3: "advanced"}
+# LEVELS and parse_level live in session (the :level command uses them too); kept importable here.
+from .session import LEVELS, Job, Session, parse_level  # noqa: F401
 
 # Libraries shown (and numbered) on the home screen. Any importable library can still be typed.
 LIBRARIES: Tuple[str, ...] = (
@@ -72,18 +71,6 @@ class Choice:
 
 
 # ----- small helpers -------------------------------------------------------------------------
-
-
-def parse_level(text) -> Optional[int]:
-    """'2', 'i', 'Intermediate' -> 2. Anything else -> None."""
-    t = str(text or "").strip().lower()
-    if t in ("1", "2", "3"):
-        return int(t)
-    if t:
-        for level, name in LEVELS.items():
-            if name.startswith(t):
-                return level
-    return None
 
 
 def clean_target(text: str) -> str:
@@ -576,8 +563,15 @@ def start(choice: Choice, console: Console) -> int:
     may_use_ai = choice.mode == "ai" or choice.target not in preset_levels()
     try:
         if may_use_ai and _ai_ready():
-            with console.status(f"Writing a new exercise with {settings.model} … ({_AI_TIMEOUT_TEXT})"):
-                session = Session(choice.target, choice.level, choice.mode)
+            # The same progress bar as :s in the line CLI (the model may take up to 20 s).
+            console.print(Text(f"Writing a new exercise with {settings.model} … "
+                               f"({_AI_TIMEOUT_TEXT})", style=style.PALETTE["muted"]))
+            job = Job(lambda report: Session(choice.target, choice.level, choice.mode,
+                                             on_progress=report))
+            if not style.wait_with_bar(job, console):
+                console.print(Text("Cancelled.", style=style.PALETTE["muted"]))
+                return 1
+            session = job.result()
         else:
             session = Session(choice.target, choice.level, choice.mode)
     except ExerciseUnavailable as e:

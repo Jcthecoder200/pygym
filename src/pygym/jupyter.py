@@ -13,6 +13,8 @@ uses the code from the last check. IPython is imported only here, lazily, and is
 Output goes through Rich (the same panels as the line CLI, see style.py): in a notebook Rich
 shows it as HTML, elsewhere (a plain IPython shell) as text. A check prints the test table (call,
 expected, got, ✓/✗) and each test's print() output under the cell; %pygym :out prints it again.
+While the AI writes a new exercise (%pygym :s, %pygym :level 2 in AI mode) a progress line is
+shown (see _wait); interrupting the kernel cancels and keeps the current exercise.
 """
 from __future__ import annotations
 
@@ -27,7 +29,8 @@ _active = None  # the Session the magics talk to (None = no exercise running)
 
 INSTRUCTIONS = ("Write your function in a new cell that starts with  %%pygym :w   "
                 "(other commands: %pygym :out, %pygym :h, %pygym :help, %pygym :solution, "
-                "%pygym :s, %%pygym :wq, %pygym :q)")
+                "%pygym :s, %pygym :level, %%pygym :wq, %pygym :q)")
+PROGRESS_WIDTH = 72  # characters of the progress line while the AI writes an exercise
 NO_SESSION = 'No active exercise. Run exercise("zip") first.'
 
 
@@ -77,6 +80,41 @@ def start(session, ip=None) -> None:
     console.print(style.exercise_view(session))  # with Session.notice below, if any
 
 
+def _wait(job, refresh: float = 0.25) -> None:
+    """Show a progress line until the job is done. Interrupting the kernel (the ■ button) cancels.
+
+    In a notebook: one output line updated in place (an IPython display handle, no ipywidgets
+    needed), cleared at the end. Elsewhere (the IPython terminal): a plain line each time the
+    text changes, without the seconds (so it is not one line per tick)."""
+    notebook = in_notebook()
+    handle = None
+    last = ""
+    try:
+        while True:
+            finished = job.wait(refresh)
+            event, elapsed = job.progress, job.elapsed
+            if notebook:
+                text = style.progress_line(event, elapsed, PROGRESS_WIDTH,
+                                           hint="■ interrupts").plain
+                if handle is None:
+                    from IPython.display import display
+                    handle = display({"text/plain": text}, raw=True, display_id=True)
+                else:
+                    handle.update({"text/plain": text}, raw=True)
+            else:
+                text = style.progress_text(event, elapsed).rsplit(" · ", 1)[0]
+                if text != last and event.get("stage") != "starting":
+                    print("… " + text, flush=True)
+                    last = text
+            if finished:
+                break
+    except KeyboardInterrupt:
+        job.cancel()
+    finally:
+        if handle is not None:
+            handle.update({"text/plain": ""}, raw=True)
+
+
 def pygym_magic(line: str, cell: Optional[str] = None) -> None:
     """%pygym <command>  or  %%pygym <command> + code in the cell body."""
     try:
@@ -94,7 +132,12 @@ def _run(line: str, cell: Optional[str]) -> None:
         return
     command = (line or "").strip() or ":w"
     code = cell if cell is not None and cell.strip() else None
-    resp = session.handle(command, code)
+    if session.needs_wait(command):  # the AI writes the next exercise: show its progress
+        job = session.start(command, code)
+        _wait(job)
+        resp = job.result()
+    else:
+        resp = session.handle(command, code)
     console.print(style.response(resp, session))
     if resp.ask_reveal:
         try:

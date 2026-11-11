@@ -6,17 +6,18 @@ The full-screen terminal editor is in editor.py, the Jupyter %%pygym magic in ju
 from __future__ import annotations
 
 import re
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from rich.console import Console, RenderableType
 from rich.text import Text
 
 from . import style
-from .session import Session
+from .session import Session, is_command_line
 
-# A line counts as a command only if it is ":" followed by letters/"!" and nothing else
-# (after trimming spaces). Known commands run; other ":xyz" lines are reported as unknown.
-# Real Python code practically never looks like this, so it is safe to keep out of the code.
+# A line counts as a command only if the whole line is one (after trimming spaces): ":" followed
+# by letters/"!", or ":level <one word>" (session.is_command_line). Known commands run; other
+# ":xyz" lines are reported as unknown. Real Python code practically never looks like this, so it
+# is safe to keep out of the code. (_COMMAND_LINE: the plain form, kept for old imports.)
 _COMMAND_LINE = re.compile(r"^:[A-Za-z!]+$")
 
 
@@ -28,8 +29,12 @@ def _printer(print_fn: Callable[..., None]) -> Callable[[RenderableType], None]:
 
 
 def run_text(session: Session, input_fn: Callable[[str], str] = input,
-             print_fn: Callable[..., None] = print) -> None:
+             print_fn: Callable[..., None] = print, console: Optional[Console] = None) -> None:
+    """console: where the progress bar goes while the AI writes the next exercise (default: the
+    terminal when print_fn is print; with another print_fn and no console there is no bar)."""
     show = _printer(print_fn)
+    if console is None and print_fn is print:
+        console = Console(highlight=False)
     show(style.intro())
     show(style.exercise_view(session))  # with Session.notice (AI warning / fallback note) below
     buffer: List[str] = []  # lines typed since the last :w
@@ -42,13 +47,22 @@ def run_text(session: Session, input_fn: Callable[[str], str] = input,
             return
 
         stripped = line.strip()
-        if not _COMMAND_LINE.match(stripped):
+        if not is_command_line(stripped):
             buffer.append(line)
             continue
 
         # Current code: what was typed since the last :w; None = "no new code" (Session uses the saved code).
         code = "\n".join(buffer) if buffer else None
-        resp = session.handle(stripped, code)
+        job = session.start(stripped, code)  # done at once unless the AI writes a new exercise
+        if not job.done:
+            if console is not None:
+                style.wait_with_bar(job, console)
+            else:
+                try:
+                    job.wait()
+                except KeyboardInterrupt:
+                    job.cancel()
+        resp = job.result()
         if stripped in (":w", ":wq"):
             buffer = []  # the next lines start a fresh attempt
         show(style.response(resp, session))

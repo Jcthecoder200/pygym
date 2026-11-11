@@ -20,7 +20,7 @@ from rich.text import Text
 
 from . import __version__
 from .models import TIMED_OUT, short_repr
-from .session import COMMANDS
+from .session import COMMANDS, LEVEL_UP_AFTER, LEVELS
 
 # Every colour pygym uses, by meaning. Values are Rich style strings.
 PALETTE = {
@@ -61,6 +61,13 @@ PALETTE = {
     "results_bar_focus": "bold black on cyan",  # ... while it has the focus (Ctrl-W w)
     "results_pass_block": "bold black on green",  # " 5/5 passed " in that bar (check passed)
     "results_fail_block": "bold white on red",    # " 3/5 passed " (check failed)
+    # level and progress
+    "level": "yellow",              # :level answers, "beginner ●○○ 1/3" under a passed check
+    "status_level": "yellow on grey23",  # "●○○ 2/3" in the editor's status line
+    "progress_spinner": "cyan",     # ⠋ while the next exercise is being written
+    "progress_bar": "cyan",         # the filled part of the bar
+    "progress_rest": "grey35",      # the rest of the bar
+    "progress_text": "",            # "writing exercise · try 2 of 4 · 7 s"
 }
 CODE_THEME = "monokai"
 DOT_FULL, DOT_EMPTY, MAX_LEVEL = "●", "○", 3
@@ -71,7 +78,7 @@ ICONS = {"pass": "✓ ", "fail": "✗ ", "refused": "! ", "notice": "! "}
 LINE_STYLES = {"pass": PALETTE["pass"], "fail": PALETTE["fail"], "refused": PALETTE["refused"],
                "unknown": PALETTE["unknown"], "exercise": PALETTE["muted"],
                "quit": PALETTE["muted"], "notice": PALETTE["notice"], "results": PALETTE["muted"],
-               "": PALETTE["muted"]}
+               "level": PALETTE["level"], "": PALETTE["muted"]}
 
 CLI_HOW_TO = ("Type your function line by line. A line that is exactly a command runs it; "
               "every other line becomes part of your code. After a :w, the next lines you "
@@ -166,9 +173,12 @@ def response(resp, session) -> RenderableType:
     if result is not None and kind in ("pass", "fail", "results"):
         verdict = line(resp.text, kind if kind != "results" else
                        ("pass" if result.passed else "fail"))
+        parts: List[RenderableType] = [verdict]
         if has_results(result):
-            return Group(results(result, session.exercise.function_name), verdict)
-        return verdict
+            parts.insert(0, results(result, session.exercise.function_name))
+        if kind == "pass" and getattr(session, "level", None):  # the line CLI's "status bar"
+            parts.append(level_line(session))
+        return Group(*parts) if len(parts) > 1 else verdict
     if kind == "hint":
         return Panel(Text(resp.text), title="hint", border_style=PALETTE["hint"])
     if kind == "help":
@@ -370,6 +380,123 @@ def result_lines(result, function_name: str, width: int, print_lines: int = 3) -
         for row in textwrap.wrap(icon + one_line(result.message), width=width) or [""]:
             add(Text(row, style=LINE_STYLES["pass" if result.passed else "fail"]))
     return out
+
+
+# ----- level and progress ----------------------------------------------------------------------
+
+def level_badge(session) -> str:
+    """"●○○ 2/3": the session's level and how many solved towards the next one (the editor's
+    status line). At the highest level only the dots: there is nothing more to reach."""
+    level = getattr(session, "level", 1)
+    if level >= MAX_LEVEL:
+        return dots(level)
+    return f"{dots(level)} {getattr(session, 'solved_at_level', 0)}/{LEVEL_UP_AFTER}"
+
+
+def level_line(session) -> Text:
+    """"Level: beginner ●○○ 1/3 solved to level up" (under a passed check in the CLI / Jupyter)."""
+    level = getattr(session, "level", 1)
+    name = LEVELS.get(level, "")
+    if level >= MAX_LEVEL:
+        return Text(f"Level: {name} {dots(level)} (the highest)", style=PALETTE["level"])
+    n = getattr(session, "solved_at_level", 0)
+    return Text(f"Level: {name} {dots(level)} {n}/{LEVEL_UP_AFTER} solved to level up",
+                style=PALETTE["level"])
+
+
+# While the AI writes the next exercise a front-end shows a Job's progress (session.Job): a model
+# reports no progress of its own, so the bar fills against the time budget (elapsed / 20 s) and the
+# text says which try it is on. These helpers turn a progress event (a dict, see session.STARTING)
+# into what every front-end shows.
+
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # one frame per 0.1 s
+BAR_FULL, BAR_EMPTY = "━", "─"
+CANCEL_HINT = "Ctrl-C cancels"
+
+
+def progress_text(event: dict, elapsed: Optional[float] = None) -> str:
+    """"writing exercise · try 2 of 4 · 7 s", "try 1 rejected: crashed on its tests · 9 s",
+    "using a hand-written exercise instead". elapsed: the live seconds (default: the event's)."""
+    stage = event.get("stage", "starting")
+    seconds = int(event.get("elapsed", 0.0) if elapsed is None else elapsed)
+    attempt, most = event.get("attempt") or 0, event.get("max_attempts") or 0
+    tries = f"try {attempt} of {most}" if attempt and most else ""
+    detail = str(event.get("detail") or "")
+    if stage == "asking":
+        text = f"writing exercise · {tries}" if tries else "writing exercise"
+    elif stage == "checking":
+        text = f"checking exercise · {tries}" if tries else "checking exercise"
+    elif stage == "rejected":
+        text = f"try {attempt} rejected: {detail or 'not usable'}"
+    elif stage == "done":
+        return "exercise ready"
+    elif stage == "fallback":
+        return detail or "using a hand-written exercise instead"
+    else:
+        text = "asking the model"
+    return f"{text} · {seconds} s"
+
+
+def progress_fraction(event: dict, elapsed: Optional[float] = None) -> float:
+    """How full the bar is: elapsed / budget, at most 0.99 until the exercise is ready."""
+    if event.get("stage") in ("done", "fallback"):
+        return 1.0
+    budget = float(event.get("budget") or 20.0)
+    seconds = float(event.get("elapsed", 0.0) if elapsed is None else elapsed)
+    return max(0.0, min(0.99, seconds / budget)) if budget > 0 else 0.0
+
+
+def spinner_frame(elapsed: float) -> str:
+    return SPINNER[int(max(0.0, elapsed) * 10) % len(SPINNER)]
+
+
+def progress_line(event: dict, elapsed: float, width: int, hint: str = CANCEL_HINT) -> Text:
+    """One row: "⠹ writing exercise · try 2 of 4 · 7 s  ━━━━━━━━──────────  Ctrl-C cancels".
+    Never wider than `width`: the hint goes first, then the bar gets shorter (at least 8 cells)."""
+    width = max(1, width)
+    head = Text.assemble((spinner_frame(elapsed), PALETTE["progress_spinner"]), " ",
+                         (progress_text(event, elapsed), PALETTE["progress_text"]))
+    tail = f"  {hint}" if hint else ""
+    room = width - head.cell_len - 2 - len(tail)
+    if room < 8 and tail:
+        tail, room = "", width - head.cell_len - 2
+    row = head
+    if room >= 8:
+        bar = min(30, room)
+        full = int(round(progress_fraction(event, elapsed) * bar))
+        row.append("  ")
+        row.append(BAR_FULL * full, style=PALETTE["progress_bar"])
+        row.append(BAR_EMPTY * (bar - full), style=PALETTE["progress_rest"])
+        row.append(tail, style=PALETTE["muted"])
+    row.truncate(width, overflow="ellipsis")
+    return row
+
+
+def wait_with_bar(job, console: Console, refresh: float = 0.1) -> bool:
+    """Show a transient Rich progress bar until `job` (a session.Job) is done; Ctrl-C cancels it.
+    Returns False if it was cancelled. A job that is already done shows nothing (a preset)."""
+    if job.done:
+        return not job.cancelled
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
+    bar = Progress(SpinnerColumn(style=PALETTE["progress_spinner"]),
+                   TextColumn("{task.description}"),
+                   BarColumn(bar_width=30, style=PALETTE["progress_rest"],
+                             complete_style=PALETTE["progress_bar"],
+                             finished_style=PALETTE["progress_bar"]),
+                   TextColumn(CANCEL_HINT, style=PALETTE["muted"]),
+                   console=console, transient=True, refresh_per_second=10)
+    try:
+        with bar:
+            task = bar.add_task(progress_text(job.progress, job.elapsed), total=100)
+            while not job.wait(refresh):
+                event, elapsed = job.progress, job.elapsed
+                bar.update(task, description=progress_text(event, elapsed),
+                           completed=100 * progress_fraction(event, elapsed))
+            bar.update(task, completed=100)
+    except KeyboardInterrupt:
+        job.cancel()
+    return not job.cancelled
 
 
 # ----- syntax highlighting for the editor ------------------------------------------------------

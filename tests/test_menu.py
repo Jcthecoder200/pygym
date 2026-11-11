@@ -437,26 +437,44 @@ def test_start_with_a_real_session_in_the_text_window(monkeypatch):
     assert rc == 0 and seen["ex"].startswith("zip-")
 
 
-def test_start_uses_a_spinner_only_when_the_ai_may_run(monkeypatch):
-    monkeypatch.setattr(menu, "Session", FakeSession)
-    monkeypatch.setattr(menu.ui, "run", lambda s, u: None)
+def test_start_uses_a_progress_bar_only_when_the_ai_may_run(monkeypatch):
+    # (was: a spinner; the owner asked for the same progress bar as :s instead)
+    class ProgressSession(FakeSession):
+        def __init__(self, name, difficulty, mode, on_progress=None):
+            super().__init__(name, difficulty, mode)
+            self.on_progress = on_progress
+
+    monkeypatch.setattr(menu, "Session", ProgressSession)
+    seen = []
+    monkeypatch.setattr(menu.ui, "run", lambda s, u: seen.append(s))
     calls = []
+    real_wait = style.wait_with_bar
+    monkeypatch.setattr(style, "wait_with_bar",
+                        lambda job, console: calls.append(job) or real_wait(job, console))
 
-    class Spy(Console):
-        def status(self, *a, **k):
-            calls.append(a)
-            return super().status(*a, **k)
-
-    def spy_console():
-        return Spy(file=io.StringIO(), width=100, force_terminal=False)
-
-    menu.start(menu.Choice("zip", 1, "ai", "text"), spy_console())       # AI offline: no spinner
-    assert calls == []
+    menu.start(menu.Choice("zip", 1, "ai", "text"), make_console())       # AI offline: no bar
+    assert calls == [] and seen[-1].on_progress is None
     monkeypatch.setattr(ai, "available", lambda: True)
-    menu.start(menu.Choice("zip", 1, "preset", "text"), spy_console())   # preset exists: no spinner
+    menu.start(menu.Choice("zip", 1, "preset", "text"), make_console())   # preset exists: no bar
     assert calls == []
-    menu.start(menu.Choice("zip", 1, "ai", "text"), spy_console())
-    assert len(calls) == 1 and "qwen2.5:1.5b" in calls[0][0]
+    console = make_console()
+    menu.start(menu.Choice("zip", 1, "ai", "text"), console)
+    assert len(calls) == 1 and "qwen2.5:1.5b" in output(console)
+    assert callable(seen[-1].on_progress)  # the first generation reports to the bar
+
+
+def test_start_cancelled_while_writing_goes_back_to_the_menu(monkeypatch):
+    monkeypatch.setattr(ai, "available", lambda: True)
+    monkeypatch.setattr(menu.ui, "run", lambda s, u: pytest.fail("must not open a window"))
+
+    def ctrl_c(job, console):
+        job.cancel()
+        return False
+
+    monkeypatch.setattr(style, "wait_with_bar", ctrl_c)
+    console = make_console()
+    assert menu.start(menu.Choice("zip", 1, "ai", "text"), console) == 1
+    assert "Cancelled." in output(console)
 
 
 # ----- the command line ---------------------------------------------------------------------------

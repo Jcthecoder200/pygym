@@ -8,10 +8,11 @@ Contract (used by Session and the menu; keep these names and signatures):
     def available() -> bool            is a provider reachable right now? (fast, never raises)
     def status(settings=None) -> AIStatus   the same, with a one-line message for the menu
     def generate_exercise(target: str, difficulty: int, *, avoid_ids=None, settings=None,
-                          timeout: float = 20.0) -> Exercise
+                          timeout: float = 20.0, on_progress=None) -> Exercise
         target: a built-in name ("zip") or a dotted importable name ("statistics.median",
         "str.join"). Returns a VALIDATED Exercise with source="ai" and generator="<provider:model>",
-        or raises GenerationUnavailable.
+        or raises GenerationUnavailable. on_progress(event_dict), if given, is called at every
+        step (asking / checking / rejected / done / fallback; see engine.generate_exercise).
 
 Modules: targets (what can be a target), prompt (what we ask), providers (Ollama, an
 OpenAI-compatible server, a fake for tests), validate (reply -> checked Exercise), cache (saved
