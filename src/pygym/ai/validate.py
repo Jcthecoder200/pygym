@@ -208,6 +208,22 @@ def _first_error(outputs: list) -> str:
     return ""
 
 
+# "function 'x'", "function `x`", "function x(" in a question: the function the student must write.
+_ASKED_NAME = re.compile(r"\bfunctions?\s+(?:called\s+|named\s+)?[`'\"]?([A-Za-z_]\w*)[`'\"]?\s*(?:\(|[`'\"])")
+
+
+def names_other_function(question: str, name: str, target: str = "") -> str:
+    """The function name the question asks for, when it isn't `name` (else "").
+
+    Small models sometimes write the question for one name and the code for another; the starter
+    code always uses the code's name, so such an exercise contradicts itself."""
+    ignore = {name, *target.split(".")}           # "the function `cumsum(`" names the target
+    for asked in _ASKED_NAME.findall(question or ""):
+        if asked not in ignore and not keyword.iskeyword(asked) and not hasattr(builtins, asked):
+            return asked
+    return ""
+
+
 def make_id(info: TargetInfo, level: int, reference: str, test_inputs: list) -> str:
     digest = hashlib.sha1((reference + json.dumps(test_inputs, sort_keys=True)).encode("utf-8"))
     return f"ai-{info.name}-{level}-{digest.hexdigest()[:8]}"
@@ -250,9 +266,14 @@ def to_exercise(raw: str, info: TargetInfo, level: int, generator: str, *,
     name = _text(data, "function_name")
     if name.startswith("def "):
         name = name[4:].split("(")[0].strip()
+    declared = name
     top = [n.name for n in tree.body if isinstance(n, ast.FunctionDef)]
     if _top_function(tree, name) is None and len(top) == 1:
         name = top[0]                         # the name field disagrees with the code: trust the code
+        if declared.isidentifier() and re.search(rf"\b{re.escape(declared)}\b", question):
+            # ...and make the question agree, or the student is told to write a function the
+            # starter code doesn't have
+            question = re.sub(rf"\b{re.escape(declared)}\b", name, question)
     if not name.isidentifier() or keyword.iskeyword(name):
         raise InvalidExercise(f"function_name {name!r} is not a valid Python name")
     if hasattr(builtins, name) or name == info.short:
@@ -262,6 +283,10 @@ def to_exercise(raw: str, info: TargetInfo, level: int, generator: str, *,
     if fn is None:
         raise InvalidExercise(f"reference_solution does not define '{name}' at the top level")
     signature = f"def {name}({ast.unparse(fn.args)}):"
+    other = names_other_function(question, name, info.name)
+    if other:
+        raise InvalidExercise(f"the question asks for a function '{other}' but the code defines "
+                              f"'{name}'; use the same name in both")
 
     if not grader._uses_target(tree, info.name):
         raise InvalidExercise(f"reference_solution must call {info.call_form}")

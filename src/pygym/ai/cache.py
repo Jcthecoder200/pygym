@@ -17,6 +17,7 @@ from typing import Iterable, List, Optional
 
 from .. import grader, progress
 from ..models import Exercise
+from .validate import names_other_function
 
 VERSION = 1
 KEEP = 50
@@ -69,7 +70,9 @@ def pick(target: str, level: int, avoid_ids: Iterable[str] = ()) -> Optional[Exe
     """A random saved exercise for this target and level that isn't in avoid_ids.
     Prefers ones the student hasn't solved yet."""
     avoid = set(avoid_ids or ())
-    pool = [e for e in load(target) if e.difficulty == level and e.id not in avoid]
+    # Older pygym versions saved exercises whose question names another function than the code.
+    pool = [e for e in load(target) if e.difficulty == level and e.id not in avoid
+            and not names_other_function(e.question_text, e.function_name, e.target_function)]
     if not pool:
         return None
     solved = progress.solved_ids()
