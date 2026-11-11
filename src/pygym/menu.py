@@ -341,8 +341,7 @@ def _toggle_mode(settings: config.Settings, console: Console) -> None:
     settings.mode = "ai" if settings.mode == "preset" else "preset"
     _save(settings, console)
     if settings.mode == "ai":
-        console.print(Text("Mode: AI.", style="bold"))
-        console.print(Text("! " + ai.WARNING, style=style.PALETTE["refused"]))
+        console.print(Text("Mode: AI.", style="bold"))  # the home panel shows the warning
         if not _ai_ready():
             console.print(Text("The AI is not reachable now, so pygym will fall back to the preset "
                                "exercises.", style=style.PALETTE["muted"]))
@@ -552,7 +551,9 @@ def start(choice: Choice, console: Console) -> int:
             session = Session(choice.target, choice.level, choice.mode)
     except ExerciseUnavailable as e:
         _say(console, f"✗ {e}", kind="fail")
-        if choice.mode == "preset":
+        if "AI could not" in str(e):
+            tip = "Pick a function with ★, or try again (the AI writes a new exercise each time)."
+        elif choice.mode == "preset":
             tip = "Tip: switch to AI mode (m in the menu, or --mode ai), or pick a function with ★."
         else:
             tip = "AI mode could not write one and there is no preset. Pick a function with ★."

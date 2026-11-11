@@ -5,6 +5,10 @@ from dataclasses import dataclass, field, fields
 from typing import Any, List, Optional
 
 
+# Built-in types whose methods can be targets ("str.join"): no import needed.
+_METHOD_OWNERS = {"str", "list", "dict", "set", "tuple", "int", "float", "bytes"}
+
+
 @dataclass
 class Exercise:
     id: str
@@ -21,6 +25,21 @@ class Exercise:
     allowed_imports: List[str] = field(default_factory=list)
     source: str = "preset"        # "preset" (bundled, human-reviewed) or "ai" (generated, unreviewed)
     generator: str = ""           # for source "ai": which model made it, e.g. "ollama:qwen2.5:3b"
+
+    @property
+    def import_lines(self) -> List[str]:
+        """The import the student needs for the target, e.g. ["import statistics"] for
+        "statistics.median". Built-ins ("zip") and methods of built-in types ("str.join") need none."""
+        module, _, _ = self.target_function.rpartition(".")
+        if not module or module in _METHOD_OWNERS:
+            return []
+        return [f"import {module.split('.')[0]}"]
+
+    @property
+    def starter_code(self) -> str:
+        """What every front-end pre-fills: the needed import (if any) above the def line."""
+        head = "\n".join(self.import_lines)
+        return (head + "\n\n" if head else "") + self.function_signature
 
     @classmethod
     def from_dict(cls, d: dict) -> "Exercise":

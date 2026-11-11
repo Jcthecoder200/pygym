@@ -84,7 +84,7 @@ def run_tk(session: Session) -> None:
         question.config(text=f"[{ex.target_function} · level {ex.difficulty}]\n"
                              f"{ex.question_text}")
         box.delete("1.0", "end")
-        box.insert("1.0", ex.function_signature + "\n    ")
+        box.insert("1.0", ex.starter_code + "\n    ")
         status.config(text="", fg="black")
 
     def submit():

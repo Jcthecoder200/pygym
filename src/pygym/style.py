@@ -132,7 +132,7 @@ def intro(how_to: Optional[Sequence[RenderableType]] = None) -> Panel:
 def exercise_header(ex) -> Panel:
     body = Group(title_line(ex), Text(""), Text(ex.question_text), Text(""),
                  Text("Your function should look like:", style=PALETTE["muted"]),
-                 code(ex.function_signature))
+                 code(ex.starter_code))
     return Panel(body, title=Text(ex.id, style=PALETTE["muted"]),
                  border_style=PALETTE["exercise"], padding=(1, 2))
 

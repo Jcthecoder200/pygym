@@ -260,8 +260,8 @@ class Editor:
     def load_exercise(self) -> None:
         """Reset the buffer to the starter text of the current exercise."""
         ex = self.session.exercise
-        self.buffer = Buffer(ex.function_signature + "\n" + INDENT)
-        self.buffer.row, self.buffer.col = 1, len(INDENT)
+        self.buffer = Buffer(ex.starter_code + "\n" + INDENT)
+        self.buffer.row, self.buffer.col = len(self.buffer.lines) - 1, len(INDENT)
         self.starter_text = self.buffer.text
         self.top = 0
         # The pre-filled starter text counts as "saved", so :q right away is allowed.

@@ -48,7 +48,7 @@ def _console() -> Console:
 def _example(ex) -> Group:
     return Group(Text("For example:", style=style.PALETTE["muted"]),
                  Text("%%pygym :w", style=style.PALETTE["command"]),
-                 style.code(ex.function_signature + "\n    ..."))
+                 style.code(ex.starter_code + "\n    ..."))
 
 
 def _intro(ex):

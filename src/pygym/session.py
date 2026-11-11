@@ -86,10 +86,15 @@ class Session:
                 return ex
         try:
             ex = loader.pick(self.name, self.difficulty, self.seen)
-        except loader.ExerciseUnavailable:
+        except loader.ExerciseUnavailable as e:
             # Not hard-coded: preset mode also falls back to the generator for such functions.
             ex = self._generate() if self.mode == "preset" else None
             if ex is None:
+                why = getattr(self, "_ai_error", "")
+                if why:  # say why the AI could not help instead of only "no preset"
+                    raise loader.ExerciseUnavailable(
+                        f"No exercise for '{self.name}': there is no hand-written one, and the AI "
+                        f"could not write one ({why}).") from e
                 raise
         self.seen.add(ex.id)
         return ex
@@ -100,6 +105,7 @@ class Session:
         try:
             ex = ai.generate_exercise(self.name, self.difficulty or 1, avoid_ids=set(self.seen))
         except (NotImplementedError, ai.GenerationUnavailable) as e:
+            self._ai_error = str(e)
             self.notice = f"AI mode unavailable ({e}); using the preset exercises."
             return None
         self.notice = ai.WARNING
