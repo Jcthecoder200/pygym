@@ -2,7 +2,7 @@
 from .loader import ExerciseUnavailable, available_functions
 from .session import Session
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = ["exercise", "available_functions", "ExerciseUnavailable", "Session"]
 
 
