@@ -84,8 +84,8 @@ modes.
    - the **expected results come from running the reference solution**, never from the model;
    - the results are not all the same, and they are the same when run a second time;
    - the reference passes the normal grader, like a student solution would.
-5. If a check fails, pygym tells the model what was wrong and asks again (up to 4 times in
-   about 20 seconds). A fresh try (not a repair) takes the next use case.
+5. If a check fails, pygym tells the model what was wrong and asks again, until a reply passes or
+   the time budget is used (60 seconds by default, setting `ai_timeout`; at most 10 tries). A fresh try (not a repair) takes the next use case.
 6. Good exercises are saved in `~/.pygym/generated/<function>.json`. When the model is slow,
    wrong or not running, pygym reuses a saved one you have not seen yet.
 7. If nothing works, pygym uses a preset exercise and tells you why (for example
@@ -184,7 +184,7 @@ exercise).
 
 ### Thinking models (qwen3, qwen3.5, deepseek-r1...)
 
-Some models "think" before they answer: they write a long hidden reasoning first. With a 20 s
+Some models "think" before they answer: they write a long hidden reasoning first. With a short time
 budget they spent the whole time thinking: qwen3.5:2b timed out. pygym now asks Ollama once per
 model and per run (`/api/show`, its `capabilities`) and sends `"think": false` to models that
 list `thinking`. Measured: qwen3.5:2b then answers in about 4.5 s with no thinking text. Other
@@ -204,6 +204,7 @@ Settings live in `~/.pygym/config.json` (or `$PYGYM_HOME/config.json`):
 | `model` | `"qwen2.5:1.5b"` | the model name for that provider |
 | `base_url` | `"http://localhost:11434"` | where the server is |
 | `prefetch` | `true` | write the next AI exercise in the background while you work |
+| `ai_timeout` | `60` | seconds the AI may spend on one exercise (10-300); it keeps asking until a reply passes the checks or this time is used |
 
 Environment variables:
 
@@ -517,3 +518,19 @@ model, intermediate and advanced exercises mostly come from saved exercises (reu
 they fit their level) or hand-written ones; a larger model (qwen2.5:3b or more) is the way to
 get new ones. The valid `bin` exercise still shows the older limit: its question says the
 input is between 0 and 16777215, but one test uses -5 (`'b101'`).
+
+**8. A one-minute budget** (2026-11-11, Ollama, qwen2.5:1.5b, 60 s, fresh `PYGYM_HOME`, the
+level rules on):
+
+| Function | Level | Time | Tries | Result | Rejected because |
+|---|---|---|---|---|---|
+| `bin` | 2 | 59.5 s | 10 | no exercise | did not call `bin` (7), syntax error (3) |
+| `sorted` | 2 | 60 s | 7 | no exercise | too simple for the level (6), the last call ran out of time |
+| `zip` | 2 | 60 s | 7 | no exercise | did not call `zip` (4), syntax error (2) |
+| `sorted` | 3 | 58.6 s | 8 | no exercise | too simple (3), did not call `sorted` (2), not usable (3) |
+| `bin` (bigger task) | 3 | 60 s | 10 | no exercise | did not call `bin` (6), too simple (2), not usable (2) |
+
+Three times the tries did not help: the 1.5B model repeats the same mistake after it is
+told what was wrong. The minute matters for slower models and for prefetch (which hides it);
+it does not make this model write intermediate or advanced exercises.
+

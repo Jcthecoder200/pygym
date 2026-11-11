@@ -17,9 +17,10 @@ from .validate import InvalidExercise, to_exercise
 
 WARNING = "AI-generated exercise: it may be incorrect. Use it carefully."
 NO_AI_ENV = "PYGYM_NO_AI"
-MAX_ATTEMPTS = 4
+MAX_ATTEMPTS = 10                # the time budget is the real limit; this only stops a loop
 MIN_TIME_FOR_RETRY = 3.0      # seconds left that are worth another model call
 SANDBOX_TIMEOUT = 5.0
+DEFAULT_TIMEOUT = 60.0           # seconds for one exercise (config: ai_timeout)
 MAX_TOKENS = 700
 BASE_TEMPERATURE = 0.8
 STATUS_TTL = 10.0
@@ -157,7 +158,7 @@ def _reporter(on_progress: Optional[ProgressCallback], budget: float):
 
 def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] = None,
                       settings: Optional[config.Settings] = None,
-                      timeout: float = 20.0,
+                      timeout: Optional[float] = None,
                       on_progress: Optional[ProgressCallback] = None,
                       bigger: bool = False) -> Exercise:
     """A new, validated exercise about `target` at level `difficulty` (1-3).
@@ -168,12 +169,13 @@ def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] 
     targets too small for an advanced exercise on their own (TargetInfo.simple).
 
     The exercise is set in one of the target's real-world use cases (usecases.py), taking turns.
-    Up to 4 model calls within `timeout` seconds (a rejected reply is sent back with the reason,
-    so the model can fix it). If none works, an earlier saved exercise for the same target and
+    Model calls until one works or `timeout` seconds are used (None = the ai_timeout setting,
+    60 s by default; at most MAX_ATTEMPTS calls). A rejected reply is sent back with the reason,
+    so the model can fix it. If none works, an earlier saved exercise for the same target and
     level is reused. Otherwise raises GenerationUnavailable with a one-line reason.
 
     on_progress (optional) is called on this thread with a dict at every step:
-        {"attempt": 2, "max_attempts": 4, "elapsed": 7.1, "budget": 20.0,
+        {"attempt": 2, "max_attempts": 10, "elapsed": 7.1, "budget": 60.0,
          "stage": "ideas" | "asking" | "checking" | "rejected" | "done" | "fallback",
          "detail": "..."}
     "ideas" (attempt 0): the model lists real-world use cases of the target first (once per
@@ -192,10 +194,12 @@ def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] 
         raise GenerationUnavailable(str(e)) from None
     level = _level(difficulty)
     avoid = set(avoid_ids or ())
+    settings = settings or config.load()
+    if timeout is None:
+        timeout = float(getattr(settings, "ai_timeout", DEFAULT_TIMEOUT))
     report = _reporter(on_progress, timeout)
     try:
-        return _generate(info, level, avoid, settings or config.load(), timeout, report,
-                         bigger=bigger)
+        return _generate(info, level, avoid, settings, timeout, report, bigger=bigger)
     except GenerationUnavailable:
         raise
     except Exception as e:  # noqa: BLE001  (a bug here must not crash a lesson)

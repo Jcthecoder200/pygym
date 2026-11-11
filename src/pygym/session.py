@@ -7,7 +7,7 @@ anything later) behaves the same way. A front-end only:
   3. displays the returned Response and obeys its flags (quit / ask_reveal / ask_bigger /
      clear_code).
 
-A command that loads a new exercise (:s, :level 2) can take up to 20 s in AI mode, because a local
+A command that loads a new exercise (:s, :level 2) can take up to a minute in AI mode, because a local
 model writes it. A front-end that wants to stay responsive calls  session.start(command, code)
 instead: it returns a Job at once, the exercise is written in a background thread, and
 job.result() gives the same Response handle() would have given (see Job).
@@ -202,8 +202,8 @@ class JobCancelled(BaseException):
 # The progress of a job before its first event. The AI engine reports dicts with these keys
 # (see pygym.ai.generate_exercise(on_progress=...)); stage is one of
 # "starting" | "ideas" | "asking" | "checking" | "rejected" | "done" | "fallback".
-STARTING: Dict[str, Any] = {"stage": "starting", "attempt": 0, "max_attempts": 4,
-                            "elapsed": 0.0, "budget": 20.0, "detail": ""}
+STARTING: Dict[str, Any] = {"stage": "starting", "attempt": 0, "max_attempts": 10,
+                            "elapsed": 0.0, "budget": 60.0, "detail": ""}
 
 
 class Job:
@@ -433,7 +433,7 @@ class Session:
     # ----- producing the next exercise (may run in a background thread: changes nothing) ------
 
     def needs_generation(self, level: Optional[int] = None) -> bool:
-        """True if the next exercise will be written by the AI (it can then take up to 20 s):
+        """True if the next exercise will be written by the AI (it can then take up to a minute):
         AI mode, or preset mode for a function without hand-written exercises."""
         from . import ai
         if ai.engine._turned_off():
@@ -669,7 +669,7 @@ class Session:
         Front-ends without a persistent code box (the line CLI, a Jupyter cell with only a command)
         pass None instead of re-implementing this rule themselves.
 
-        Blocks until done (in AI mode :s can take up to 20 s): see start() for the same thing
+        Blocks until done (in AI mode :s can take up to a minute): see start() for the same thing
         without blocking.
         """
         return self._dispatch(command, code, background=False).result()

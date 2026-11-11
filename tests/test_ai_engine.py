@@ -74,7 +74,7 @@ def test_success_first_try(use):
     assert call["schema"] == SCHEMA
     assert "`zip`" in user_text(call) and "intermediate" in user_text(call)
     assert call["temperature"] == pytest.approx(0.8) and call["max_tokens"] == 700
-    assert call["timeout"] <= 20.0
+    assert call["timeout"] <= engine.DEFAULT_TIMEOUT    # the 60 s default budget
 
 
 def test_expected_outputs_never_trusted_from_the_model(use):
@@ -109,11 +109,11 @@ def test_schema_violation_is_sent_back_for_repair(use):
     ("[]", "JSON"),
 ])
 def test_bad_replies_end_in_generation_unavailable(use, bad, words):
-    fake = use(bad, bad, bad, bad, bad)
+    fake = use(*[bad] * (engine.MAX_ATTEMPTS + 1))
     with pytest.raises(ai.GenerationUnavailable) as e:
         ai.generate_exercise("zip", 1)
     assert len(fake.calls) == engine.MAX_ATTEMPTS
-    assert "after 4 tries" in str(e.value) and words in str(e.value)
+    assert f"after {engine.MAX_ATTEMPTS} tries" in str(e.value) and words in str(e.value)
 
 
 def test_looping_reference_is_rejected_then_retried(use, monkeypatch):

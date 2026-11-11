@@ -122,7 +122,7 @@ def test_engine_reports_each_step_of_a_good_first_try(provider):
     assert stages(events) == [("asking", 1), ("checking", 1), ("done", 1)]
     for e in events:
         assert set(e) == {"attempt", "max_attempts", "elapsed", "budget", "stage", "detail"}
-        assert e["max_attempts"] == engine.MAX_ATTEMPTS and e["budget"] == 20.0
+        assert e["max_attempts"] == engine.MAX_ATTEMPTS and e["budget"] == engine.DEFAULT_TIMEOUT
         assert e["elapsed"] >= 0
 
 
@@ -137,11 +137,11 @@ def test_engine_reports_a_rejected_try_with_a_short_reason(provider):
 
 
 def test_engine_reports_every_attempt_then_fallback(provider):
-    provider("{bad", "{bad", "{bad", "{bad")
+    provider(*["{bad"] * engine.MAX_ATTEMPTS)
     events = []
     with pytest.raises(ai.GenerationUnavailable):
         ai.generate_exercise("zip", 1, on_progress=events.append)
-    assert [a for s, a in stages(events) if s == "asking"] == [1, 2, 3, 4]
+    assert [a for s, a in stages(events) if s == "asking"] == list(range(1, engine.MAX_ATTEMPTS + 1))
     assert all(e["detail"] == "not valid JSON" for e in events if e["stage"] == "rejected")
     assert events[-1]["stage"] == "fallback" and events[-1]["detail"]
 

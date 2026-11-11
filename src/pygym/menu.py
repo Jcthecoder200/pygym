@@ -56,7 +56,8 @@ _NOT_EXERCISES = frozenset({
     "staticmethod", "classmethod",
 })
 _PROMPT_STYLE = "bold yellow"
-_AI_TIMEOUT_TEXT = "up to 20 s"
+def _ai_timeout_text() -> str:
+    return f"up to {config.load().ai_timeout} s"
 
 
 class LibraryError(Exception):
@@ -611,9 +612,9 @@ def start(choice: Choice, console: Console, *,
     extra = {} if bigger is None else {"bigger": bigger}  # only when the question was asked
     try:
         if may_use_ai and _ai_ready():
-            # The same progress bar as :s in the line CLI (the model may take up to 20 s).
+            # The same progress bar as :s in the line CLI (the model may take up to ai_timeout s).
             console.print(Text(f"Writing a new exercise with {settings.model} … "
-                               f"({_AI_TIMEOUT_TEXT})", style=style.PALETTE["muted"]))
+                               f"({_ai_timeout_text()})", style=style.PALETTE["muted"]))
             job = Job(lambda report: Session(choice.target, choice.level, choice.mode,
                                              on_progress=report, **extra))
             if not style.wait_with_bar(job, console):
@@ -758,6 +759,7 @@ def _print_status(console: Console, settings: config.Settings) -> None:
     table.add_row("address", settings.base_url)
     table.add_row("prefetch", "on (the next AI exercise is written while you work)"
                   if settings.prefetch else "off")
+    table.add_row("AI time", f"up to {settings.ai_timeout} s per exercise")
     table.add_row("AI", Text("ready", style=style.PALETTE["pass"]) if ready
                   else Text("not reachable (AI mode falls back to preset)", style=style.PALETTE["fail"]))
     table.add_row("sandbox", _sandbox_cell())

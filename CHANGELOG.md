@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 
 ## [Unreleased]
 ### Added
+- **AI time budget of a minute, as a setting.** The AI may now spend up to 60 s on one
+  exercise (was 20 s), with up to 10 tries instead of 4. `ai_timeout` in `config.json`
+  (10-300 s) changes it; `pygym --status` shows it, and the progress bar fills against it.
 - **Each level has a rule, checked on the reference solution's code** (`pygym.ai.levels`).
   Beginner: one line (a comprehension or `x if c else y` is fine there), or a few
   straight-line lines with no `if`, no `x if c else y`, no `for`/`while`, no

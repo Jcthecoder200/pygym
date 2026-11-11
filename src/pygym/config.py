@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 MODES = ("preset", "ai")
+AI_TIMEOUT_RANGE = (10, 300)  # seconds
 UIS = ("auto", "editor", "text", "tk")
 LEVELS = (1, 2, 3)
 
@@ -31,6 +32,7 @@ class Settings:
     ui: str = "auto"              # window for the exercise: one of UIS
     library: str = "builtins"     # the library used last in the menu
     prefetch: bool = True         # write the next AI exercise while the student works
+    ai_timeout: int = 60          # seconds the AI may spend on one exercise (10-300)
 
 
 _DEFAULTS = Settings()
@@ -49,6 +51,10 @@ def _clean(name: str, value: Any) -> Any:
         return text if text in allowed else default
     if name == "prefetch":
         return value if isinstance(value, bool) else default
+    if name == "ai_timeout":
+        ok = (isinstance(value, (int, float)) and not isinstance(value, bool)
+              and AI_TIMEOUT_RANGE[0] <= value <= AI_TIMEOUT_RANGE[1])
+        return int(value) if ok else default
     if name == "level":
         ok = isinstance(value, int) and not isinstance(value, bool) and value in LEVELS
         return value if ok else default

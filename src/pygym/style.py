@@ -405,7 +405,7 @@ def level_line(session) -> Text:
 
 
 # While the AI writes the next exercise a front-end shows a Job's progress (session.Job): a model
-# reports no progress of its own, so the bar fills against the time budget (elapsed / 20 s) and the
+# reports no progress of its own, so the bar fills against the time budget (elapsed / budget, 60 s by default) and the
 # text says which try it is on. These helpers turn a progress event (a dict, see session.STARTING)
 # into what every front-end shows.
 
@@ -444,7 +444,7 @@ def progress_fraction(event: dict, elapsed: Optional[float] = None) -> float:
     """How full the bar is: elapsed / budget, at most 0.99 until the exercise is ready."""
     if event.get("stage") in ("done", "fallback"):
         return 1.0
-    budget = float(event.get("budget") or 20.0)
+    budget = float(event.get("budget") or 60.0)
     seconds = float(event.get("elapsed", 0.0) if elapsed is None else elapsed)
     return max(0.0, min(0.99, seconds / budget)) if budget > 0 else 0.0
 

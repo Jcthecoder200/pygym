@@ -147,7 +147,7 @@ New tests: `tests/test_session.py`, `tests/test_cli.py`.
 | `:q!` | Close without checking | always quits | `quit=True` |
 | `:h` | Hint | — | `kind="hint"` |
 | `:help` | Docs | the target function's docstring (`zip`, `str.join`, `statistics.median`) | `kind="help"` (long text: show in a scrollable area) |
-| `:s` | Skip | loads another exercise (at `Session.level`), forgets the saved code; may update `Session.notice`. In AI mode this can take up to 20 s: use `start(":s")` to show a progress bar | `kind="exercise"`, `clear_code=True`; or `kind="refused"` (no `clear_code`) when no other exercise exists right now (a function without presets whose generation failed) |
+| `:s` | Skip | loads another exercise (at `Session.level`), forgets the saved code; may update `Session.notice`. In AI mode this can take up to a minute (`ai_timeout`): use `start(":s")` to show a progress bar | `kind="exercise"`, `clear_code=True`; or `kind="refused"` (no `clear_code`) when no other exercise exists right now (a function without presets whose generation failed) |
 | `:solution` | Solution | — (solving this exercise afterwards no longer counts towards the next level; so does `session.solution()`) | `kind="solution"` |
 | `:level` / `:lv` | Level | alone: the level and the count (`Level: beginner ●○○ — 2 of 3 solved to level up. :level 1-3 to change`). `:level 2`, `:level intermediate`, `:lv i` (also `b`, `a`): sets the level, resets the count, loads a new exercise at once (progress bar in AI mode) | alone / same level: `kind="level"`; a new level: `kind="exercise"`, `clear_code=True`; not a level: `kind="refused"` (`'x' is not a level. Use :level 1, 2 or 3 (or b, i, a).`) |
 | `:bigger yes` / `:bigger no` | (the answer to the [Y/n] question, not a button) | the answer to the bigger-task question (see [Bigger tasks](#bigger-tasks-the-ask_bigger-question)); remembered for the session. Not in `COMMANDS` / `:intro`: front-ends send it | `kind="exercise"`, `clear_code=True` when it loads one (yes after `:level 3`; no from beginner); else `kind="level"`; `kind="refused"` for another word, or for a function that is not too small |
@@ -277,7 +277,8 @@ while the student edits, clear it after Skip, and add a "Results" button that ca
 ## Waiting for the AI (`Session.start()` and `Job`)
 
 In AI mode (and in preset mode for a function without presets) `:s` and `:level 2` make a local
-model write the next exercise: up to 4 tries within a 20 s budget, then a fallback. `handle()`
+model write the next exercise: tries within a 60 s budget (setting `ai_timeout`, at most 10
+tries), then a fallback. `handle()`
 blocks all that time. A front-end that wants to stay responsive and show progress uses:
 
 ```python
@@ -346,7 +347,7 @@ does not have to do anything to get it. What changes for you:
 engine's only new parameter; `Job.progress` before the first event is `session.STARTING`):
 
 ```python
-{"attempt": 2, "max_attempts": 4, "elapsed": 7.1, "budget": 20.0,
+{"attempt": 2, "max_attempts": 10, "elapsed": 7.1, "budget": 60.0,
  "stage": "ideas" | "asking" | "checking" | "rejected" | "done" | "fallback", "detail": "..."}
 ```
 
