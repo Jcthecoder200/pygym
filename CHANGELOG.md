@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 
 ## [Unreleased]
 ### Added
+- **Test results after every check.** The student sees every test: the call
+  (`combine(['a'], [1])`), the expected value, what the function returned or raised, ✓/✗, and
+  what `print()` wrote during that test (and while the code was loading). Shown on a passing
+  check too. New `TestResult` and `GradeResult.tests` / `GradeResult.setup_stdout` (old fields
+  unchanged); shared builders `style.results()` (Rich table) and `style.result_lines()`.
+- **`:out`**: shows the results of the last check again (`kind="results"`; "Nothing checked yet."
+  before the first check; a note when the code changed since). Listed in `:intro` and the start
+  screen.
+- **The editor's results window**, like Neovim's quickfix window: opens at the bottom after every
+  `:w` (at most 40% of the screen, the code keeps at least 3 rows), title bar ` results  3/5
+  passed `, one row per test with its `print()` lines (3, then `… n more lines`) under it. It stays
+  open while editing and refreshes on the next `:w`; `:out` closes / opens it; `Ctrl-W w` moves
+  the focus into it to scroll (`j` `k`, `Space`, `g` `G`), `q` closes it, `Esc` goes back.
+- The line CLI and Jupyter print the table (`#`, call, expected, got, ✓/✗) and the `print()`
+  output above the verdict line; `%pygym :out` in Jupyter.
+- After a timeout the student sees which test was running and what it had printed: the runner
+  reports its progress on stderr (`_runner.read_progress()`), finished tests keep their rows.
+- Tests: `tests/test_results.py` (runner, grader, renderers), `tests/test_editor_results.py`
+  (the window: opening, toggling, refreshing, scrolling, sizes from 20x5 to 120x50, render time),
+  more in `test_session.py`, `test_cli.py`, `test_jupyter.py` and a pseudo-terminal `:w`.
 - **AI exercises for any installed library** (`numpy.cumsum`, `pandas.concat`,
   `requests.get`, `os.listdir`...), not only 22 standard modules. A shared deny list
   (`_runner.DENIED_MODULES`, used by the menu, the AI engine and the sandbox) refuses GUI
@@ -78,6 +98,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   Windows layer with a fake `msvcrt`), Jupyter and the styles (186 tests in total).
 
 ### Changed
+- `print()` output is no longer thrown away: the runner keeps it per test (4000 characters each,
+  then `… (output cut)`); stray C-level output still goes nowhere, so the JSON result is safe.
+- A wrong answer says how many tests passed: `Not quite right yet: 3 of 5 tests passed.` (was
+  `Not quite right yet.`); a timeout says in which test it happened.
+- The grader compares every test (it used to stop at the first wrong one) and runs the code even
+  when the target is missing, so those rows are filled too (the verdict is unchanged).
+- A test that raises `SystemExit` no longer stops the other tests.
+- "Unknown command" lists the commands after `Try:` (was `Commands:`), so the longer list still
+  fits an 80-column editor line.
 - The runner starts with `python -E` (was `-I`, which hid libraries installed with
   `pip install --user`); pygym's own folder is still removed from `sys.path` first.
 - `os.listdir`-style targets are allowed with an OS sandbox; three tests that expect `os` to be

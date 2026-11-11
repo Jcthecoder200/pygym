@@ -17,6 +17,12 @@ magic" change, the Rich look (colours, panels, syntax highlighting), and AI mode
   **`src/pygym/style.py`** (see [Look and colours](#look-and-colours)).
 - **New (2026-11-11):** every front-end must show **`Session.notice`** when it is not empty, and
   mark generated exercises (`exercise.source == "ai"`) with an **AI** badge. See below.
+- **New: test results.** A check now tells the student *every* test: the call, the expected value,
+  what their function returned (or raised) and what `print()` wrote. They are in
+  **`GradeResult.tests`** (`Response.result.tests`) and **`GradeResult.setup_stdout`**; the new
+  command **`:out`** shows the last check's results again. The editor has a results window
+  (like Neovim's quickfix window), the CLI and Jupyter print a table. See
+  [Test results](#test-results-graderesulttests-and-out); a tkinter how-to is included.
 
 ## The `pygym` command, modes and AI exercises
 
@@ -136,6 +142,7 @@ New tests: `tests/test_session.py`, `tests/test_cli.py`.
 | `:s` | Skip | loads another exercise, forgets the saved code; may update `Session.notice` | `kind="exercise"`, `clear_code=True`; or `kind="refused"` (no `clear_code`) when no other exercise exists right now (a function without presets whose generation failed) |
 | `:solution` | Solution | — | `kind="solution"` |
 | `:intro` | Commands / ? | the list of all commands (`session.commands_text()`) | `kind="commands"` |
+| `:out` | Results | the results of the last check again (the editor: opens / closes its results window) | `kind="results"`, `result=` the last `GradeResult` (text `Last check: ...`, or a note that the code changed since); before any check `result=None` and the text `Nothing checked yet. :w to check your code.` |
 
 "Changed since the last `:w`" ignores trailing spaces and blank lines.
 The list with descriptions is `pygym.session.COMMANDS`; use it for tooltips/labels so the
@@ -147,15 +154,103 @@ wording matches the CLI.
 @dataclass
 class Response:
     text: str                 # what to show the student
-    kind: str                 # pass | fail | hint | help | solution | commands | exercise | refused | unknown | quit
+    kind: str                 # pass | fail | hint | help | solution | commands | results | exercise | refused | unknown | quit
     quit: bool = False        # close the window now
     ask_reveal: bool = False  # ask "Reveal the solution?" (yes -> show session.solution())
     clear_code: bool = False  # new exercise: redraw the question and reset the code box
-    result: GradeResult | None = None   # set for :w / :wq
+    result: GradeResult | None = None   # set for :w / :wq, and for :out after a check
 ```
 
 The UI decides *how* things look (colours, popups, icons). It must not decide *whether*
 something is allowed: always ask `handle()`.
+
+## Test results (`GradeResult.tests` and `:out`)
+
+The owner's rule: show everything. Every test's input, expected value, the student's value and
+their `print()` output are visible, on a passing check too (it shows what the code does).
+Hard-coding answers is the student's own problem.
+
+```python
+@dataclass
+class TestResult:                 # src/pygym/models.py
+    index: int                    # the test's number as the student sees it: 1, 2, 3 ...
+    args: list                    # the arguments; the call is function_name(*args)
+    expected: Any                 # the expected return value
+    got: Any = None               # what the function returned (when error == "")
+    error: str = ""               # "ZeroDivisionError: division by zero", or why it did not run
+    passed: bool = False
+    stdout: str = ""              # what print() wrote during this test
+    # call_text(function_name, limit=80) -> "combine(['a'], [1])" ("…" when cut)
+    # ran (property): False for a test that never started (error == models.NOT_RUN)
+
+@dataclass
+class GradeResult:
+    passed: bool                  # passed, reason, message: unchanged
+    reason: str
+    message: str = ""
+    tests: List[TestResult] = []  # one row per test, in order
+    setup_stdout: str = ""        # what print() wrote while the code was loaded (top-level code)
+    # passed_count (property), summary() -> "3/5 passed" ("" without rows)
+```
+
+When are there rows?
+
+| Check | `tests` | `message` |
+|---|---|---|
+| passed | every row, all `passed` | `Correct!` |
+| wrong answers / exceptions | every row (the code keeps running after a test raised) | `Not quite right yet: 3 of 5 tests passed.` (+ ` (pygym blocked: ...)` when the sandbox stopped something) |
+| target not used | every row (the answers may be right: the verdict is "use the target") | unchanged |
+| timeout | the finished tests, the running one (`error == models.TIMED_OUT`, with what it printed so far), the rest `error == models.NOT_RUN` | `Your code ran too long (possible infinite loop) in test 3.` (`... while loading (top-level code).`, or no detail when unknown) |
+| syntax error, crash while loading, missing function, broken exercise | `[]` (never expected values for an exercise without them) | the error |
+
+`print()` output is cut after 4000 characters per test (`_runner.STDOUT_LIMIT`) and then ends with
+`… (output cut)`. `expected` and `got` are the JSON form the grader compares (tuples are lists,
+sets are sorted lists). Printed text can contain anything: show it through `style.visible()`
+(control characters such as `\x1b` become visible escapes).
+
+How each front-end shows it:
+
+| Front-end | After `:w` / `:wq` | `:out` |
+|---|---|---|
+| line CLI | a table (`#`, call, expected, got, ✓/✗), then each test's `print()` output, then the verdict line | prints it again, with `Last check: ...` |
+| Jupyter | the same table under the cell | `%pygym :out` |
+| editor | the results window opens (also on a pass) and stays open while you edit | opens / closes the window |
+| tkinter | not yet: see the how-to below | — |
+
+Shared builders in `style.py`: `style.results(result, function_name, width=None)` (the Rich table
+and the print blocks; `style.response()` already puts it above the verdict for `pass`, `fail` and
+`results` responses), `style.result_lines(result, function_name, width, print_lines=3)` (one
+`rich.text.Text` per screen row, used by the editor), `style.has_results(result)`,
+`style.results_title(result)` (`"3/5 passed"` or `"no tests ran"`), `style.row_icon(t)`,
+`style.outcome_parts(t)`, `style.visible(text)`, `style.printed_lines(text, n)`.
+
+### tkinter how-to (`run_tk` was not changed)
+
+After `r = session.handle(":w", code)`, `r.result` is the `GradeResult`. A read-only `Text`
+widget under the code box is enough (a `ttk.Treeview` with the columns `#`, call, expected, got
+works too):
+
+```python
+from pygym import style
+
+out = scrolledtext.ScrolledText(root, height=8, font=("Courier", 10), state="disabled")
+out.tag_config("pass", foreground="#1a8f2e")      # PALETTE "pass"
+out.tag_config("fail", foreground="#c62828")      # PALETTE "fail"
+out.tag_config("muted", foreground="gray50")      # PALETTE "printed" / "muted"
+
+def show_results(result):
+    out.config(state="normal")
+    out.delete("1.0", "end")
+    rows = style.result_lines(result, session.exercise.function_name, width=100, print_lines=20)
+    for row in rows:                       # rows are rich Text objects; .plain is the text
+        tag = {"✓": "pass", "✗": "fail"}.get(row.plain[:1], "muted")
+        out.insert("end", row.plain + "\n", tag)
+    out.config(state="disabled")
+```
+
+Call `show_results(r.result)` after **every** check (a passing one too), keep the widget visible
+while the student edits, clear it after Skip, and add a "Results" button that calls
+`handle(":out")` (its `result` is `None` before the first check: show `r.text` then).
 
 ## Terminal editor (Linux/macOS)
 
@@ -176,6 +271,10 @@ syntax highlighting come from Rich.
 - **Pager**: long texts (`:help`, `:solution`, long messages) open full screen.
 - **Prompt**: after a failed `:wq` (or a refused `:q` after a failed check) the bottom line asks
   `Reveal the solution? [y/N]`.
+- **Results window** (like Neovim's quickfix window): opens at the bottom after every `:w` / `:wq`,
+  pass or fail, and stays open while you keep editing (to compare while fixing); the next `:w`
+  refreshes it, `:out` closes / opens it, `:s` closes it. `Ctrl-W w` moves the focus into it to
+  scroll (see Keys).
 
 ### Keys
 
@@ -187,6 +286,10 @@ syntax highlighting come from Rich.
 | NORMAL | `x` | delete the character under the cursor |
 | NORMAL | `dd` | delete the line (one empty line is always left) |
 | NORMAL | `:` | open the command line |
+| NORMAL | `Ctrl-W w` (or `Ctrl-W j`, `Ctrl-W Ctrl-W`) | move the focus into the results window |
+| results window | `j` `k` arrows, `Space` / `PageDown`, `b` / `PageUp`, `g` / `G` | scroll |
+| results window | `Esc`, `Ctrl-W w` (or `Ctrl-W k`) | back to the code |
+| results window | `q` | close the window (like `:cclose`); `:` and `i` `a` `o` work as in the code |
 | INSERT | letters, digits, `:` ... | typed as text |
 | INSERT | `Enter` | new line, keeps the indentation; +4 spaces after a line ending in `:` |
 | INSERT | `Backspace` | delete the character before the cursor; at the start of a line, join it with the line above |
@@ -212,6 +315,33 @@ list of values, pairs them up, and returns a dictionary. ...                    
  INSERT                          zip-01                                     2,35  <- status line
 -- INSERT --                                                                      <- message / :cmd
 ```
+
+After a `:w` the results window sits between the code and the status line (80x24, failing check):
+
+```
+  5     return dict(zip(keys, values))
+~
+ results  2/3 passed                                                 :out close   <- title bar
+✓ 1  combine(['a', 'b', 'c'], [1, 2, 3])  →  {'a': 1, 'b': 2, 'c': 3}
+    │ checking ['a', 'b', 'c']                                                    <- print() output
+✓ 2  combine(['x', 'y'], [1, 2, 3, 4])  →  {'x': 1, 'y': 2}
+    │ checking ['x', 'y']
+✗ 3  combine([], [])  expected {}  got None
+    │ checking []
+ NORMAL                               zip-01                               5,35
+✗ Failed: Not quite right yet: 2 of 3 tests passed.
+```
+
+- Height: what the content needs, at most 40% of the screen (`RESULTS_MAX_SHARE`), and the code
+  always keeps at least 3 rows (`MIN_CODE_ROWS`); on a tiny screen the window is not drawn.
+- A row that does not fit puts `expected ... got ...` on a second, indented row; anything still too
+  long ends with `…`. `print()` output shows 3 lines per test (`RESULTS_PRINT_LINES`), then
+  `… n more lines` (the CLI shows 20).
+- The title bar shows `1-8 of 24` when it can scroll; ` 3/5 passed ` is white on red after a
+  failed check, black on green after a passed one; the bar's ` results ` label turns cyan while
+  the window has the focus.
+- The content rows are built once per check and width (`Editor.results_lines()`), so drawing the
+  screen stays fast (`tests/test_editor_results.py` measures it).
 
 Colours (Neovim-like): the built-in's name bold magenta, the difficulty dots yellow; the code is
 highlighted with the `monokai` theme on the terminal's own background; line numbers grey, the
@@ -239,6 +369,8 @@ The whole screen is drawn again after every key. It uses the alternate screen (l
 - One-line answers go to the bottom line (`Hint: ` before hints; `✓ `, `✗ ` or `! ` before
   pass, fail and refused). `help`, `solution` and anything longer than the screen width
   (counting that icon) open the pager.
+- A `Response` with a `result` (`:w`, `:wq`) opens the results window with it. `kind="results"`
+  (`:out`) toggles the window; its text goes to the message line (cut, never the pager).
 
 ### Testing it
 
@@ -324,6 +456,8 @@ How it works:
 - The code is the cell body. If the body is empty (or only spaces), the magic passes
   `code=None` and Session uses the code from the last check. That is why `%pygym :q` after a
   passing `:w` quits, and `%pygym :w` re-checks the last code.
+- A check prints the test table (call, expected, got, ✓/✗) and each test's `print()` output
+  above the verdict line, also when it passes; `%pygym :out` prints the last one again.
 - Everything is printed with Rich, using the same panels as the line CLI (`src/pygym/style.py`):
   in a notebook Rich shows them as HTML, in a plain IPython shell as text. `exercise()` prints
   an intro panel with the `%%pygym` instructions and an example cell, then the exercise panel.
@@ -359,6 +493,10 @@ plain-text fallback. All colours are in `PALETTE` in **`src/pygym/style.py`**, b
 | `gutter` / `gutter_current` | grey50 / bold yellow | editor line numbers | — |
 | `mode_normal` / `mode_insert` / `mode_command` | bold black on blue / green / yellow | editor mode block | — |
 | `status_bar` / `status_pos` | white on grey23 / black on grey58 | editor status line | — |
+| `printed` | dim | `print()` output under a test (`│ hello`) | `gray50` |
+| `error_text` | red | `raised ZeroDivisionError: ...`, a wrong `got` value | `#c62828` |
+| `results_bar` / `results_bar_focus` | black on grey58 / bold black on cyan | editor results window title bar | — |
+| `results_pass_block` / `results_fail_block` | bold black on green / bold white on red | ` 3/5 passed ` in that bar | — |
 
 Code is highlighted with Pygments' `monokai` theme (`style.CODE_THEME`) on the terminal's own
 background. The Tk column is only a suggestion for a light window background.
@@ -374,6 +512,8 @@ The builders (each returns a Rich renderable; `style.to_plain(r)` gives its text
 | `style.response(resp, session)` | a `Response` by `kind`: icon + coloured line, hint / documentation panel, or `Solution:` + code |
 | `style.solution(code)`, `style.code(code)` | `Solution:` + highlighted code / highlighted code only |
 | `style.line(text, kind)` | one line with the icon (`style.ICONS`) and colour of `kind` |
+| `style.results(result, function_name)` | the test table and the `print()` output (see [Test results](#test-results-graderesulttests-and-out)) |
+| `style.result_lines(result, function_name, width)` | the same, as one `Text` per screen row (the editor's results window) |
 
 A tkinter front-end can't use Rich renderables, but it can mirror them: `PALETTE` and `ICONS`
 for the status label (`fg=` by `kind`), `style.dots()` for the difficulty, and the same titles
