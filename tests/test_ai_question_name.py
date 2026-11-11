@@ -40,6 +40,9 @@ def reply(**overrides):
      "numpy.cumsum", ""),
     ("Use the function 'sorted' inside rank.", "rank", "sorted", ""),
     ("Write a function's docstring", "f", "len", ""),
+    ("Write a function using `sorted` to rank players.", "rank", "sorted", ""),   # not a name
+    ("Write a function that uses 'zip' on two lists.", "pair", "zip", ""),
+    ("Write a function total_cost(items) that adds prices.", "total", "sum", "total_cost"),
 ])
 def test_names_other_function(question, name, target, other):
     assert names_other_function(question, name, target) == other

@@ -222,7 +222,9 @@ def _first_error(outputs: list) -> str:
 
 
 # "function 'x'", "function `x`", "function x(" in a question: the function the student must write.
-_ASKED_NAME = re.compile(r"\bfunctions?\s+(?:called\s+|named\s+)?[`'\"]?([A-Za-z_]\w*)[`'\"]?\s*(?:\(|[`'\"])")
+_ASKED_NAME = re.compile(r"\bfunctions?\s+(?:called\s+|named\s+)?"
+                         r"(?:[`'\"]([A-Za-z_]\w*)\s*(?:\(|[`'\"])"   # 'name' / `name(`
+                         r"|([A-Za-z_]\w*)\()")                          # name(
 
 
 def names_other_function(question: str, name: str, target: str = "") -> str:
@@ -231,7 +233,8 @@ def names_other_function(question: str, name: str, target: str = "") -> str:
     Small models sometimes write the question for one name and the code for another; the starter
     code always uses the code's name, so such an exercise contradicts itself."""
     ignore = {name, *target.split(".")}           # "the function `cumsum(`" names the target
-    for asked in _ASKED_NAME.findall(question or ""):
+    for quoted, bare in _ASKED_NAME.findall(question or ""):
+        asked = quoted or bare
         if asked not in ignore and not keyword.iskeyword(asked) and not hasattr(builtins, asked):
             return asked
     return ""
