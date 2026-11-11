@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 # Built-in types whose methods can be targets ("str.join"): no import needed.
@@ -25,6 +25,12 @@ class Exercise:
     allowed_imports: List[str] = field(default_factory=list)
     source: str = "preset"        # "preset" (bundled, human-reviewed) or "ai" (generated, unreviewed)
     generator: str = ""           # for source "ai": which model made it, e.g. "ollama:qwen2.5:3b"
+    # Small text files written into the (temporary, empty) working folder before every test:
+    # {"notes.txt": "a\nb"}. Relative paths only, 64 KB in total. open() is allowed when set.
+    files: Dict[str, str] = field(default_factory=dict)
+    # Answers of a local test server the code reaches through the global name BASE_URL:
+    # {"/users/1": {"status": 200, "json": {...}}, "/hello": {"text": "hi"}}.
+    http_fixtures: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def import_lines(self) -> List[str]:
