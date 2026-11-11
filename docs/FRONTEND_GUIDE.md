@@ -67,6 +67,25 @@ How each front-end does it:
 **Dotted targets.** Generated exercises can be about `str.join` or `statistics.median`.
 `exercise.target_function` is then the full name. `:help` shows that function's documentation
 (with its signature); titles say e.g. `Documentation: statistics.median`.
+Targets can come from any installed library (`numpy.cumsum`, `requests.get`); pre-fill
+`exercise.starter_code` (it already has `import numpy` above the `def` line; the student may
+change it to `import numpy as np`).
+
+**New `Exercise` fields** (both optional, default empty; old cache files still load):
+
+| Field | Type | Meaning for a front-end |
+|---|---|---|
+| `files` | `Dict[str, str]` | small text files (relative path → text) the code finds in its working folder. The question text names them; a front-end may show them (e.g. under the question), but does not need to. |
+| `http_fixtures` | `Dict[str, dict]` | answers of a local test server (`"/users/1": {"status": 200, "json": {...}}`). The code reaches it through the global name `BASE_URL`. Nothing to show. |
+
+Grading is unchanged for a front-end: `session.handle(":w", code)`. The grader runs the code
+in a new temporary folder (never the student's folder), see `docs/AI_MODE.md`, "The sandbox".
+
+**Sandbox level.** `grader.sandbox_level()` returns `"bwrap"`, `"sandbox-exec"` or
+`"audit-hook"`; `sandbox.label()` gives the text to show (`"bubblewrap"`,
+`"macOS sandbox-exec"`, `"basic (Python audit hook only)"`). The menu header shows it in a
+`Sandbox` row and `pygym --status` in a `sandbox` row. The first call runs a quick self-test
+(about 30 ms, once per process). Front-ends don't need to show it.
 
 ## Which UI runs
 

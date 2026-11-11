@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 
 ## [Unreleased]
 ### Added
+- **AI exercises for any installed library** (`numpy.cumsum`, `pandas.concat`,
+  `requests.get`, `os.listdir`...), not only 22 standard modules. A shared deny list
+  (`_runner.DENIED_MODULES`, used by the menu, the AI engine and the sandbox) refuses GUI
+  toolkits, things that start programs or control Python (`subprocess`, `ctypes`, `sys`...),
+  `random`/`time`, `pip` and pygym itself, each with a reason. File and network libraries
+  need an OS sandbox (refused on Windows). A library that is not installed gets the exact
+  `python -m pip install ...` command (pygym never installs anything).
+- **The sandbox** (`pygym.sandbox`): every run (student code and model code) happens in a new
+  temporary folder that is deleted afterwards, never in the student's folder; a Python audit
+  hook blocks writes outside it, starting programs, `ctypes`, opening a browser and network
+  access; on Linux with bubblewrap the system is also read-only, the home folder hidden and
+  the network cut; on macOS `sandbox-exec` (untested). Secret environment variables are not
+  passed on; a 16 MB file-size limit was added. `grader.sandbox_level()`; the menu header and
+  `pygym --status` show the level; `PYGYM_SANDBOX=audit-hook` switches the OS layer off.
+  Overhead of bubblewrap: about 3-5 ms per run (a plain run takes about 21 ms in total).
+- New optional `Exercise` fields `files` (small text files written into the folder before
+  every test; `open()` is allowed then) and `http_fixtures` (answers of a local test server
+  the code reaches through `BASE_URL`). The AI prompt asks for them when the target needs
+  files or the network.
+- Results of numpy / pandas / dataclasses / Decimal ... are converted the same way for the
+  reference and the student (`.tolist()`, `.to_dict()`, `repr`), and `NaN` equals `NaN`.
+  `import numpy as np`, `from numpy import cumsum` and the method form `arr.cumsum()` are
+  accepted (numpy ufuncs and the method form get the static check only).
+- AI validation rejects a reference that hits the sandbox ("blocked: ..."), sets its own
+  `BASE_URL`, or opens a file it did not provide, with a reason the model can act on. A
+  reference may import other allowed libraries; the student may then import them too.
+- Tests: `tests/test_sandbox.py` (each layer, files, the test server, blocked actions, command
+  lines, the audit hook) and `tests/test_libraries.py` (library policy, results conversion,
+  numpy grading, the engine end to end with numpy, requests and file exercises); numpy, pandas
+  and requests are optional for them.
 - **More built-ins with hand-written exercises:** 17 built-ins now have presets (was 3):
   `map filter enumerate len max min range any all sorted sum zip` at levels 1, 2 and 3, and
   `reversed abs divmod round isinstance`. 44 new exercises (49 in total), all listed as
@@ -48,6 +78,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   Windows layer with a fake `msvcrt`), Jupyter and the styles (186 tests in total).
 
 ### Changed
+- The runner starts with `python -E` (was `-I`, which hid libraries installed with
+  `pip install --user`); pygym's own folder is still removed from `sys.path` first.
+- `os.listdir`-style targets are allowed with an OS sandbox; three tests that expect `os` to be
+  refused now pin the basic sandbox level (`PYGYM_SANDBOX=audit-hook`).
+- The menu refuses `sys`, `time`, `random`, `subprocess` and the other denied libraries with
+  the reason, instead of listing their functions.
 - The menu no longer prints `Session.notice` itself; the front-end shows it (it appeared twice in
   the line CLI).
 - `:help` is described as "the function's own documentation" (it is no longer only built-ins).

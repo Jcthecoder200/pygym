@@ -4,8 +4,9 @@ pygym has two modes:
 
 - **preset** (default): exercises written and checked by people. Works offline.
 - **ai**: a small language model (LLM) on your own computer writes a new exercise each time,
-  for almost any function: built-ins (`zip`), methods (`str.join`) and functions from some
-  standard modules (`statistics.median`, `itertools.chain`).
+  for almost any function: built-ins (`zip`), methods (`str.join`), standard modules
+  (`statistics.median`, `itertools.chain`) and **any library you have installed**
+  (`numpy.cumsum`, `pandas.concat`, `requests.get`).
 
 Even in preset mode, a function with no preset exercise gets an AI exercise, if AI mode is
 installed.
@@ -57,8 +58,10 @@ modes.
 3. It checks the answer **before you see it**:
    - the JSON has all fields, the reference solution parses and defines the function;
    - the reference really uses the target function and only allowed imports;
-   - the reference runs in the sandbox (a separate Python process with a time limit) on every
-     test input. Test inputs that crash are dropped; at least 3 must be left;
+   - the reference runs in the sandbox (see [The sandbox](#the-sandbox)) on every test input.
+     Test inputs that crash are dropped; at least 3 must be left. If the code tries something
+     the sandbox blocks (for example deleting a file outside its folder), it is rejected and
+     the model is told why;
    - the **expected results come from running the reference solution**, never from the model;
    - the results are not all the same, and they are the same when run a second time;
    - the reference passes the normal grader, like a student solution would.
@@ -87,7 +90,9 @@ Environment variables:
 - `PYGYM_NO_AI=1` turns AI mode off completely (no network at all). Useful in tests and
   offline classes.
 - `PYGYM_API_KEY` is the API key for the `openai` provider. It is **never** saved in
-  `config.json`.
+  `config.json` and never passed to the sandbox.
+- `PYGYM_SANDBOX=audit-hook` switches off the operating-system layer of the sandbox (see
+  [The sandbox](#the-sandbox)).
 
 ### Other servers (LM Studio, llama.cpp, vLLM, hosted APIs)
 
@@ -109,12 +114,114 @@ structured output (`response_format` of type `json_schema`).
 - Built-ins, except ones that make bad exercises (`print`, `input`, `open`, `eval`, `exec`,
   `id`, `hash`, exception classes...).
 - Methods of `str`, `list`, `dict`, `set`, `tuple`, `int`, `float`, `bytes` (e.g. `str.join`).
-- Functions and classes from these modules: `array bisect calendar cmath collections copy
-  datetime decimal difflib fractions functools heapq itertools json keyword math operator re
-  statistics string textwrap unicodedata`.
+- Functions and classes of **any library that is installed** in the Python that runs pygym
+  and that imports inside the sandbox: standard modules (`statistics`, `csv`, `datetime`...)
+  and libraries you installed (`numpy`, `pandas`, `requests`...). Methods of a library's
+  classes (`numpy.ndarray.cumsum`) are not targets; use the function (`numpy.cumsum`).
+- Libraries about **files or the network** (`os`, `pathlib`, `shutil`, `glob`, `zipfile`,
+  `urllib`, `http`, `socket`, `requests`, `httpx`...) only work when your computer has an
+  operating-system sandbox (Linux with bubblewrap, macOS). On Windows pygym refuses them,
+  because there only the basic protection is available (see [The sandbox](#the-sandbox)).
 
-Not allowed: modules that touch files, processes, the network or Python itself (`os`, `sys`,
-`subprocess`, `pathlib`...), and `random`/`time` (their results change between runs).
+**Never allowed**, with the reason pygym shows:
+
+| Libraries | Why |
+|---|---|
+| `tkinter turtle idlelib curses readline` and GUI toolkits (`PyQt5/6`, `PySide2/6`, `wx`, `kivy`, `pygame.display`, `pyautogui`) | they need a screen, sound or the keyboard |
+| `subprocess multiprocessing signal pty` and `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `os.fork`, `os.kill`... | they start or control other programs |
+| `ctypes` | it can change memory directly |
+| `sys builtins importlib code pdb resource atexit` | they control the running Python itself |
+| `random secrets time` | their results change on every run, so pygym can't know the right answer |
+| `pip setuptools venv ensurepip site` | they install or change Python packages |
+| `webbrowser antigravity this`, `pygym` | they open a browser / print something / are pygym itself |
+
+The list is in one place (`DENIED_MODULES` in `src/pygym/_runner.py`) and the menu, the AI
+engine and the sandbox all use it.
+
+**Not installed?** If you type a library that is not installed, the menu says so. For
+well-known libraries it also tells you the exact command, for example:
+
+```
+'numpy' is not installed in this Python. Install it with: /home/you/.venv/bin/python -m pip install numpy
+```
+
+pygym never installs anything by itself.
+
+**Test values are JSON.** Test inputs are always lists, dicts, numbers, strings, `true/false`
+and `null`. If the function needs something else (a numpy array, a DataFrame, a date), the
+exercise's function converts its input itself, e.g. `np.array(values)`. Results are converted
+the other way before they are compared:
+
+| Your function returns | It is compared as |
+|---|---|
+| a tuple | a list |
+| a set | a sorted list |
+| numpy numbers / arrays | Python numbers / (nested) lists (`.tolist()`) |
+| a pandas Series / DataFrame | a dict (`.to_dict()`, keys as text) |
+| a dataclass | a dict of its fields |
+| `Decimal`, `Fraction`, `complex`, dates... | their `repr` text, e.g. `"Decimal('1.50')"` (exact, so `1.5` and `1.50` differ) |
+| anything else | its `repr`, with the type name in front if the repr doesn't show it |
+
+`NaN` counts as equal to `NaN`; other floats may differ by at most `1e-9`.
+
+**Imports.** Your code may import `math itertools functools collections operator string`,
+the target's library, and any other library the reference solution imported (for example
+`numpy` in a `pandas` exercise). `import numpy as np` is fine. A file or network library can
+only be imported in an exercise about that library.
+
+## The sandbox
+
+Exercise code is never run inside pygym itself. That matters most for AI exercises: the
+model's reference solution is code nobody has read, and a small model can write
+`shutil.rmtree(...)` or ask a real web server for something by accident. Your own code runs the
+same way (it is your code, but it should not depend on your files either).
+
+**Every run, on every computer:**
+
+- **A new, empty folder.** pygym makes a fresh temporary folder, runs the code there and
+  deletes it afterwards. It never runs in the folder you started pygym from: copying that
+  folder could be huge (it is often your whole home folder), and an exercise must not depend
+  on what happens to be in it. An exercise that needs files brings them along (small text
+  files, at most 64 KB together); they are written into the folder again before every test.
+- **A local test server instead of the internet.** An exercise about `requests` or `urllib`
+  brings the answers its server should give (for example `/users/1` →
+  `{"name": "Ana"}`). pygym starts a tiny web server on your own computer (`127.0.0.1`,
+  a random port) only while the code runs, and the code finds it in the variable `BASE_URL`.
+  Any other address is blocked.
+- **A separate Python process** with a memory limit (512 MB), a file-size limit (16 MB), a
+  time limit and no secret environment variables (no API keys).
+- **A guard inside Python** (an "audit hook") that stops: writing, deleting, renaming or
+  changing files outside the folder; starting programs (`subprocess`, `os.system`); `ctypes`;
+  opening a browser; and network connections other than `BASE_URL`. You see a message like
+  `PermissionError: blocked: writing to '/home/you/x.txt' (only the exercise folder can be changed)`.
+
+**On top of that, if your computer has it:**
+
+| Computer | Extra protection | Shown as |
+|---|---|---|
+| Linux with `bwrap` (bubblewrap) installed | The whole system is read-only, your home folder is replaced by an empty one (only Python's own folders are visible), there is no network except inside the sandbox, and the code can't see your other programs. | `Sandbox: bubblewrap` |
+| macOS | A `sandbox-exec` profile: no writing outside the folder, no network except `localhost`, no other programs. **Untested**: written carefully, used only if a quick self-test passes. | `Sandbox: macOS sandbox-exec` |
+| Windows (and Linux without bubblewrap) | Only the guard inside Python. File and network libraries are refused. | `Sandbox: basic (Python audit hook only)` |
+
+On Linux, install bubblewrap with your package manager (`sudo apt install bubblewrap`,
+`sudo dnf install bubblewrap`). Some systems (some containers, some hardened kernels) forbid
+it; pygym then notices and uses the basic level.
+
+**See your level:** the menu header has a `Sandbox` line, and `pygym --status` shows it.
+To switch the extra layer off (for example if bubblewrap misbehaves), set
+`PYGYM_SANDBOX=audit-hook`. You can't force a layer your computer doesn't have.
+
+**What is NOT protected:**
+
+- **The guard inside Python is not a security wall.** Code written in C (a C extension, or
+  `ctypes` tricks) can go around it. It stops accidents, not someone who wants to break out.
+  On Windows it is the only layer, so use models and servers you trust.
+- **Reading is allowed.** Without bubblewrap, code can *read* files your user can read (it
+  just can't change them or send them anywhere over the network). With bubblewrap your home
+  folder is hidden.
+- **Computer power.** The code can use the CPU until the time limit stops it.
+- **The model server.** pygym talks to Ollama (or the server in your settings) from pygym
+  itself, not from the sandbox.
 
 ## Limits (read these)
 
@@ -133,8 +240,13 @@ Not allowed: modules that touch files, processes, the network or Python itself (
   For methods of built-in types (`str.join`, `list.sort`) Python does not allow that check, so
   pygym only checks that your code mentions the method. While a module class such as
   `collections.Counter` is being watched, `isinstance(x, collections.Counter)` does not work.
-- **The sandbox is not a security boundary.** It stops mistakes and simple cheating, not a
-  determined attacker. Only use models and servers you trust.
+  For library functions, the method form is accepted too: in a `numpy.cumsum` exercise,
+  `np.array(xs).cumsum()` passes with the mention check only (numpy's own methods can't be
+  watched). numpy "ufuncs" (`numpy.sqrt`, `numpy.add`...) can't be watched either, so they get
+  the mention check only. Calls a library makes to itself count as calls (pandas builds a
+  `Series` inside `value_counts`).
+- **The sandbox is not a security boundary on every computer.** See
+  [What is NOT protected](#the-sandbox). Only use models and servers you trust.
 
 ## Measured on the development laptop
 
@@ -198,3 +310,21 @@ GPU (shared with other programs). Results swing a lot between runs, so a few doz
 model are needed before choosing a default. Generated exercises are cached in
 `PYGYM_HOME/generated/`: when a later request for the same function fails, the cached one is
 reused, so repeat requests succeed more often than the first one.
+
+**5. Any library, in the sandbox** (2026-11-11, qwen2.5:3b, Linux with bubblewrap, fresh
+`PYGYM_HOME` per target, 10 model calls in total, so each target got only 1-2 attempts):
+
+| Target | Level | Calls | Seconds per call | Valid? | Why it was rejected |
+|---|---|---|---|---|---|
+| `numpy.cumsum` | 1 | 1 | 6.0 | **yes** | (`np.cumsum` of word lengths; the reference passes the grader) |
+| `numpy.argsort` | 2 | 2 | 6.0, 6.4 | no | the code never called `argsort`; then it crashed (TypeError) |
+| `requests.get` | 1 | 1 | 12.7 | no | the code set its own `BASE_URL = 'http://127.0.0.1:8000'` (now rejected with that reason) |
+| `os.listdir` | 1 | 2 | 5.1, 5.2 | no | no `files`, so every test gave `[]` ("all test cases give the same result") |
+| `pandas.concat` | 2 | 2 | 7.8, 8.0 | no | the code crashed on its own tests (ValueError), twice |
+| `requests.get` (prompt fixed) | 1 | 1 | 9.5 | no | fixtures and `BASE_URL` right, but the function ignored its input |
+| `os.listdir` (prompt fixed) | 1 | 1 | 7.2 | no | used `open()` without listing the file in `files` |
+
+So 1 of 7 requests gave a usable exercise. As before, the checks caught every broken reply,
+and no reply touched anything outside its temporary folder. One sandbox run costs about 21 ms
+for a plain exercise (a bare `python -c pass` takes 14 ms) and about 150 ms for a numpy one
+(numpy's import); bubblewrap adds about 3-5 ms.
