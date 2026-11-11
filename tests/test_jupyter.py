@@ -143,3 +143,21 @@ def test_intro_line_magic(ip, started, capsys):
     cell(ip, "%pygym :intro")
     out = capsys.readouterr().out
     assert ":solution" in out and ":intro" in out and "commands" in out
+
+
+def test_check_prints_the_table_under_the_cell(ip, started, capsys):
+    cell(ip, "%%pygym :w\nprint('loading')\ndef combine(keys, values):\n"
+             "    print('pairs', keys)\n    return dict(zip(keys, keys))")
+    out = capsys.readouterr().out
+    for needle in ("tests  1/3 passed", "expected", "got", "{'x': 'x', 'y': 'y'}", "✗",
+                   "Printed while your code was loading:", "│ loading", "│ pairs ['x', 'y']",
+                   "Failed: Not quite right yet: 1 of 3 tests passed."):
+        assert needle in out, needle
+    cell(ip, "%pygym :out")
+    out = capsys.readouterr().out
+    assert "tests  1/3 passed" in out and "Last check:" in out
+
+
+def test_out_before_a_check(ip, started, capsys):
+    cell(ip, "%pygym :out")
+    assert "Nothing checked yet." in capsys.readouterr().out

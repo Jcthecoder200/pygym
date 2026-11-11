@@ -7,9 +7,11 @@ from PALETTE. A tkinter front-end can mirror the same colours (see docs/FRONTEND
 from __future__ import annotations
 
 import io
+import textwrap
 from functools import lru_cache
 from typing import List, Optional, Sequence, Tuple
 
+from rich import box
 from rich.console import Console, Group, RenderableType
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -17,6 +19,7 @@ from rich.table import Table
 from rich.text import Text
 
 from . import __version__
+from .models import TIMED_OUT, short_repr
 from .session import COMMANDS
 
 # Every colour pygym uses, by meaning. Values are Rich style strings.
@@ -51,6 +54,13 @@ PALETTE = {
     "status_bar": "white on grey23",
     "status_pos": "black on grey58",
     "insert_label": "bold",         # "-- INSERT --"
+    # test results (:w, :out): the ✓ / ✗ use "pass" / "fail" above
+    "printed": "dim",               # print() output under a test:  │ hello
+    "error_text": "red",            # "raised ZeroDivisionError: ..." in a results row
+    "results_bar": "black on grey58",        # the editor's results window title bar
+    "results_bar_focus": "bold black on cyan",  # ... while it has the focus (Ctrl-W w)
+    "results_pass_block": "bold black on green",  # " 5/5 passed " in that bar (check passed)
+    "results_fail_block": "bold white on red",    # " 3/5 passed " (check failed)
 }
 CODE_THEME = "monokai"
 DOT_FULL, DOT_EMPTY, MAX_LEVEL = "●", "○", 3
@@ -60,7 +70,8 @@ ICONS = {"pass": "✓ ", "fail": "✗ ", "refused": "! ", "notice": "! "}
 # "notice" = Session.notice, shown by the front-ends, never a Response kind).
 LINE_STYLES = {"pass": PALETTE["pass"], "fail": PALETTE["fail"], "refused": PALETTE["refused"],
                "unknown": PALETTE["unknown"], "exercise": PALETTE["muted"],
-               "quit": PALETTE["muted"], "notice": PALETTE["notice"], "": PALETTE["muted"]}
+               "quit": PALETTE["muted"], "notice": PALETTE["notice"], "results": PALETTE["muted"],
+               "": PALETTE["muted"]}
 
 CLI_HOW_TO = ("Type your function line by line. A line that is exactly a command runs it; "
               "every other line becomes part of your code. After a :w, the next lines you "
@@ -148,8 +159,16 @@ def line(text: str, kind: str = "") -> Text:
 
 
 def response(resp, session) -> RenderableType:
-    """How the line CLI and Jupyter show a Response."""
+    """How the line CLI and Jupyter show a Response. A check (:w, :wq, :out) shows the test
+    results first and the verdict line below them."""
     kind = resp.kind
+    result = getattr(resp, "result", None)
+    if result is not None and kind in ("pass", "fail", "results"):
+        verdict = line(resp.text, kind if kind != "results" else
+                       ("pass" if result.passed else "fail"))
+        if has_results(result):
+            return Group(results(result, session.exercise.function_name), verdict)
+        return verdict
     if kind == "hint":
         return Panel(Text(resp.text), title="hint", border_style=PALETTE["hint"])
     if kind == "help":
@@ -172,6 +191,185 @@ def to_plain(renderable: RenderableType, width: int = 100) -> str:
     with console.capture() as captured:
         console.print(renderable)
     return "\n".join(ln.rstrip() for ln in captured.get().rstrip("\n").split("\n"))
+
+
+# ----- test results (:w, :wq, :out) -------------------------------------------------------------
+#
+# results() is the Rich table of the line CLI and Jupyter; result_lines() the same information as
+# one Text per screen row, for the editor's results window (and anything else line based).
+
+VALUE_LIMIT = 60      # characters of an expected / returned value before "…"
+CALL_LIMIT = 80       # characters of a call like combine(['a'], [1])
+PRINT_LINES = 20      # print() lines per test in the table (the editor shows fewer)
+PRINT_BAR = "│ "
+
+
+def has_results(result) -> bool:
+    """True when a GradeResult has anything to show besides its message."""
+    return bool(result is not None and (result.tests or result.setup_stdout))
+
+
+def visible(text: str) -> str:
+    """Printed text made safe to show: tabs become spaces, control characters (a stray "\\x1b"
+    would move the cursor) become escapes like \\x1b. Newlines stay."""
+    text = (text or "").replace("\r\n", "\n").expandtabs(4)
+    if text.isprintable() or all(c == "\n" or c.isprintable() for c in text):
+        return text
+    return "".join(c if c == "\n" or c.isprintable() else repr(c)[1:-1] for c in text)
+
+
+def one_line(text: str) -> str:
+    """visible() on a single row: newlines become " ↵ " (multi-line exception messages)."""
+    return visible(text).replace("\n", " ↵ ")
+
+
+def printed_lines(text: str, max_lines: int) -> Tuple[List[str], int]:
+    """The lines of print() output to show (at most max_lines) and how many were left out."""
+    lines = visible(text).split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()                    # print() ends with a newline: no empty last line
+    if len(lines) <= max_lines:
+        return lines, 0
+    return lines[:max(0, max_lines)], len(lines) - max(0, max_lines)
+
+
+def _more(hidden: int) -> str:
+    return f"… {hidden} more line{'s' if hidden != 1 else ''}"
+
+
+def row_icon(t) -> Tuple[str, str]:
+    """("✓", pass colour), ("✗", fail colour) or ("·", muted) for a test that never ran."""
+    if t.passed:
+        return "✓", PALETTE["pass"]
+    if not t.ran:
+        return "·", PALETTE["muted"]
+    return "✗", PALETTE["fail"]
+
+
+def outcome_parts(t, limit: int = VALUE_LIMIT) -> List[Tuple[str, str]]:
+    """What came out of a test, as (text, style) pieces:
+    passed  ->  ["→  ", "{'a': 1}"]; wrong -> "expected {}  got None";
+    raised  ->  "expected {}  raised ZeroDivisionError: ..."; never ran -> "not run (...)"."""
+    muted = PALETTE["muted"]
+    if t.passed:
+        return [("→  ", muted), (short_repr(t.got, limit), "")]
+    if not t.ran:
+        return [(t.error, muted)]
+    parts = [("expected ", muted), (short_repr(t.expected, limit), ""), ("  ", "")]
+    if t.error == TIMED_OUT:
+        return parts + [(t.error, PALETTE["error_text"])]
+    if t.error:
+        return parts + [("raised ", muted), (one_line(t.error), PALETTE["error_text"])]
+    return parts + [("got ", muted), (short_repr(t.got, limit), PALETTE["error_text"])]
+
+
+def results_title(result) -> str:
+    """"3/5 passed", or "no tests ran" when the code could not run."""
+    return result.summary() or "no tests ran"
+
+
+def results(result, function_name: str, width: Optional[int] = None) -> RenderableType:
+    """The test table (#, call, expected, got, ✓/✗) and the print() output of each test.
+    width: only shortens long values (Rich wraps the rest to the console's width)."""
+    value_limit = VALUE_LIMIT if not width else max(20, min(VALUE_LIMIT, width // 3))
+    parts: List[RenderableType] = []
+    if result.setup_stdout:
+        parts.append(Text("Printed while your code was loading:", style=PALETTE["muted"]))
+        parts.append(_printed_block(result.setup_stdout))
+    if result.tests:
+        all_passed = all(t.passed for t in result.tests)
+        title = Text.assemble(("tests  ", "bold"), (results_title(result),
+                              PALETTE["pass"] if all_passed else PALETTE["fail"]))
+        table = Table(title=title, title_justify="left", box=box.SIMPLE_HEAD,
+                      show_edge=False, pad_edge=False, header_style="bold")
+        table.add_column("#", justify="right", no_wrap=True)
+        table.add_column("call", overflow="fold")
+        table.add_column("expected", overflow="fold")
+        table.add_column("got", overflow="fold")
+        table.add_column("", no_wrap=True)
+        for t in result.tests:
+            icon, icon_style = row_icon(t)
+            expected = short_repr(t.expected, value_limit)
+            if t.passed:
+                got = Text(short_repr(t.got, value_limit))
+            elif not t.ran:
+                got = Text(t.error, style=PALETTE["muted"])
+            elif t.error:
+                got = Text(one_line(t.error), style=PALETTE["error_text"])
+            else:
+                got = Text(short_repr(t.got, value_limit), style=PALETTE["error_text"])
+            table.add_row(str(t.index), t.call_text(function_name, CALL_LIMIT), expected, got,
+                          Text(icon, style=icon_style))
+        parts.append(table)
+        for t in result.tests:
+            if t.stdout:
+                parts.append(Text.assemble((f"print() output of test {t.index}  ",
+                                            PALETTE["muted"]),
+                                           (t.call_text(function_name, 50), PALETTE["muted"])))
+                parts.append(_printed_block(t.stdout))
+    return Group(*parts)
+
+
+def _printed_block(text: str, max_lines: int = PRINT_LINES) -> Text:
+    lines, hidden = printed_lines(text, max_lines)
+    if hidden:
+        lines.append(_more(hidden))
+    out = Text(style=PALETTE["printed"])
+    for i, ln in enumerate(lines or [""]):
+        out.append(("\n" if i else "") + "  " + PRINT_BAR + ln)
+    return out
+
+
+def result_lines(result, function_name: str, width: int, print_lines: int = 3) -> List[Text]:
+    """The results as one Text per screen row (never wider than `width`), for the editor:
+
+        printed while loading:
+          │ hello
+        ✓ 1  combine(['a'], [1])  →  {'a': 1}
+        ✗ 3  combine([], [])  expected {}  got None
+            │ hello from test 3
+            │ … 4 more lines
+        ✗ 4  combine(['a', 'b', 'c'], [1, 2, 3])          <- too long for one row: the outcome
+             expected {'a': 1, ...}  got {'a': 'a', ...}     gets a row of its own
+
+    A result without tests (syntax error, crash while loading) shows its message instead."""
+    width = max(1, width)
+    out: List[Text] = []
+
+    def add(row: Text) -> None:
+        row.truncate(width, overflow="ellipsis")
+        out.append(row)
+
+    def add_printed(text: str, indent: str) -> None:
+        lines, hidden = printed_lines(text, print_lines)
+        for ln in lines + ([_more(hidden)] if hidden else []):
+            add(Text(indent + PRINT_BAR + ln, style=PALETTE["printed"]))
+
+    if result.setup_stdout:
+        add(Text("printed while loading:", style=PALETTE["muted"]))
+        add_printed(result.setup_stdout, "  ")
+    for t in result.tests:
+        icon, icon_style = row_icon(t)
+        head = Text.assemble((f"{icon} {t.index}", icon_style), "  ")
+        row = head.copy()
+        row.append(t.call_text(function_name, CALL_LIMIT))
+        row.append_text(Text.assemble("  ", *outcome_parts(t)))
+        if row.cell_len <= width:
+            add(row)
+        else:  # the outcome on a row of its own, under the call, values shortened to fit
+            indent = " " * head.cell_len
+            room = width - len(indent) - (3 if t.passed else len("expected   got "))
+            head.append(t.call_text(function_name, max(12, width - head.cell_len)))
+            add(head)
+            limit = max(12, room if t.passed else room // 2)
+            add(Text.assemble(indent, *outcome_parts(t, limit)))
+        if t.stdout:
+            add_printed(t.stdout, "    ")
+    if not result.tests:
+        icon = ICONS["pass" if result.passed else "fail"]
+        for row in textwrap.wrap(icon + one_line(result.message), width=width) or [""]:
+            add(Text(row, style=LINE_STYLES["pass" if result.passed else "fail"]))
+    return out
 
 
 # ----- syntax highlighting for the editor ------------------------------------------------------

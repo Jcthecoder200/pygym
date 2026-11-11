@@ -132,3 +132,45 @@ def test_intro_lists_all_commands(s):
     for name, _ in COMMANDS:
         assert name in r.text
     assert s.saved_code is None  # :intro never touches the code state
+
+
+# ----- :out (the results of the last check) -----------------------------------------------------
+
+from pygym.session import NOTHING_CHECKED, OLD_RESULTS, SHORT, commands_text  # noqa: E402
+
+
+def test_out_before_any_check(s):
+    r = s.handle(":out", WRONG)
+    assert r.kind == "results" and r.result is None and r.text == NOTHING_CHECKED
+    assert not r.quit and s.saved_code is None  # :out never touches the code state
+
+
+def test_check_responses_carry_the_rows(s):
+    r = s.handle(":w", RIGHT)
+    assert len(r.result.tests) == 3 and all(t.passed for t in r.result.tests)
+    r = s.handle(":wq", "def combine(keys, values):\n    return dict(zip(keys, keys))")
+    assert r.kind == "fail" and [t.passed for t in r.result.tests] == [False, False, True]
+
+
+def test_out_after_a_check_shows_the_last_result(s):
+    checked = s.handle(":w", "def combine(keys, values):\n    return dict(zip(keys, keys))")
+    r = s.handle(":out", "def combine(keys, values):\n    return dict(zip(keys, keys))")
+    assert r.kind == "results" and r.result is checked.result
+    assert r.text == "Last check: Not quite right yet: 1 of 3 tests passed."
+    assert s.handle(":out").result is checked.result  # code=None: the saved code
+    assert s.handle(":out", RIGHT).text == OLD_RESULTS  # the code changed since
+    newer = s.handle(":w", RIGHT)
+    assert s.handle(":out", RIGHT).result is newer.result
+
+
+def test_out_is_forgotten_after_skip(s):
+    s.handle(":w", RIGHT)
+    s.handle(":s")
+    assert s.handle(":out").text == NOTHING_CHECKED
+
+
+def test_out_is_listed_everywhere(s):
+    assert ":out" in dict(COMMANDS) and ":out" in SHORT and ":out" in commands_text()
+    assert ":out" in s.handle(":intro").text
+    assert ":out" in s.handle(":nope").text
+    assert set(SHORT) == {name for name, _ in COMMANDS}

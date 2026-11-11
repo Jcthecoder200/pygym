@@ -5,7 +5,9 @@ sends ":" commands to session.handle(command, code) and shows the Response.
 
 The parts, from pure logic to the terminal:
   Buffer       lines + cursor + edit operations
-  Editor       the state machine (modes NORMAL / INSERT / COMMAND / PAGER / PROMPT); feed(key)
+  Editor       the state machine (modes NORMAL / INSERT / COMMAND / PAGER / PROMPT); feed(key).
+               Below the code it can show the results window (the tests of the last :w), like
+               Neovim's quickfix window: Ctrl-W w moves the focus into it to scroll
   render()     turns an Editor into one screen frame (a string of text + ANSI codes); each row
                is a rich.text.Text coloured from style.PALETTE, the code highlighted by Rich
   parse_keys() turns raw bytes from the keyboard into key names ("a", "ESC", "UP", ...)
@@ -37,6 +39,12 @@ INDENT = "    "  # Tab and auto-indent always use 4 spaces, never a tab characte
 START_HINT = "i to edit · Esc then :w to check · :intro for all commands"
 CTRL_C_MESSAGE = "Type :q to quit, :q! to quit without checking"
 REVEAL_PROMPT = "Reveal the solution? [y/N] "
+RESULTS_HELP = "-- RESULTS -- j/k Space: scroll · q: close · Esc: back to the code"
+NO_RESULTS_WINDOW = "No results window: :w checks your code, :out shows the last results"
+# The results window takes at most this share of the screen (the code keeps the rest).
+RESULTS_MAX_SHARE = 0.4
+RESULTS_PRINT_LINES = 3  # print() lines shown under a test before "… n more lines"
+MIN_CODE_ROWS = 3        # the code area never gets smaller than this for the results window
 ESC_TIMEOUT = 0.05  # seconds to wait after a lone ESC byte (Neovim's ttimeoutlen)
 # The question can be longer than one screen line. It is wrapped onto at most this many rows
 # (the last row ends with "…" if it still does not fit). Set to 1 for a single truncated line.
@@ -246,6 +254,12 @@ class Editor:
         self.after_pager = NORMAL  # the mode to return to when the pager closes
         self.buffer = Buffer()
         self.intro_visible = True  # the start screen in the empty area, until the code first changes
+        # the results window: the GradeResult it shows, open or not, scrolled to, focused or not
+        self.results = None
+        self.results_open = False
+        self.results_top = 0
+        self.results_focus = False
+        self._results_cache: Tuple[object, int, List[Text]] = (None, 0, [])
         self.load_exercise()
         self.message, self.message_kind = START_HINT, ""
         self._show_notice()
@@ -273,7 +287,47 @@ class Editor:
 
     def body_rows(self, width: Optional[int] = None, height: Optional[int] = None) -> int:
         w, h = _screen(width or self.width, height or self.height)
-        return h - len(_header_rows(self.session.exercise, w, h)) - 2
+        header = len(_header_rows(self.session.exercise, w, h))
+        return h - header - 2 - self.results_height(w, h, header)
+
+    # -- the results window --
+
+    def results_lines(self, width: int) -> List[Text]:
+        """The window's content rows for this width (remembered until the result changes)."""
+        result, w, lines = self._results_cache
+        if result is not self.results or w != width:
+            lines = style.result_lines(self.results, self.session.exercise.function_name, width,
+                                       RESULTS_PRINT_LINES) if self.results is not None else []
+            self._results_cache = (self.results, width, lines)
+        return lines
+
+    def results_height(self, width: int, height: int, header: Optional[int] = None) -> int:
+        """Rows of the results window, its title bar included (0 = not shown): as many as its
+        content needs, at most RESULTS_MAX_SHARE of the screen, and never so many that the code
+        gets fewer than MIN_CODE_ROWS rows."""
+        if not self.results_open or self.results is None:
+            return 0
+        if header is None:
+            header = len(_header_rows(self.session.exercise, width, height))
+        wanted = 1 + max(1, len(self.results_lines(width)))
+        rows = min(wanted, max(2, int(height * RESULTS_MAX_SHARE)),
+                   height - header - 2 - MIN_CODE_ROWS)
+        return rows if rows >= 2 else 0
+
+    def show_results(self, result) -> None:
+        self.results, self.results_open, self.results_top = result, True, 0
+
+    def close_results(self) -> None:
+        self.results_open = self.results_focus = False
+
+    def _results_page(self) -> Tuple[int, int]:
+        """(number of content lines, rows the window shows of them)."""
+        w, h = _screen(self.width, self.height)
+        return len(self.results_lines(w)), max(1, self.results_height(w, h) - 1)
+
+    def _clamp_results(self) -> None:
+        total, page = self._results_page()
+        self.results_top = max(0, min(self.results_top, total - page))
 
     def pager_page(self) -> Tuple[List[str], int]:
         w, h = _screen(self.width, self.height)
@@ -281,6 +335,10 @@ class Editor:
 
     def _follow_cursor(self) -> None:
         self.top = _visible_top(self.top, self.buffer.row, self.body_rows())
+        if self.results_focus and not (self.results_open and self.mode == NORMAL):
+            self.results_focus = False
+        if self.results_open:
+            self._clamp_results()
         if self.mode == PAGER:
             lines, page = self.pager_page()
             self.pager_top = max(0, min(self.pager_top, len(lines) - page))
@@ -309,6 +367,8 @@ class Editor:
             if self.mode in (COMMAND, PROMPT):
                 self.mode, self.cmdline = NORMAL, ""
             self.message, self.message_kind = CTRL_C_MESSAGE, ""
+        elif self.mode == NORMAL and self.results_focus:
+            self._results_keys(key)
         elif self.mode == NORMAL:
             self._normal(key)
         elif self.mode == INSERT:
@@ -340,6 +400,18 @@ class Editor:
                 return
             if key == "ESC":
                 return
+        if self.pending == "CTRL_W":  # Ctrl-W w / j / Ctrl-W: into the results window
+            self.pending = ""
+            if key in ("w", "W", "j", "DOWN", "p", "CTRL_W"):
+                if self.results_height(*_screen(self.width, self.height)):
+                    self.results_focus = True
+                    self.message = ""  # the bottom line explains the keys
+                else:
+                    self.message, self.message_kind = NO_RESULTS_WINDOW, ""
+            return
+        if key == "CTRL_W":
+            self.pending = "CTRL_W"
+            return
         if key in MOVES or key in VI_MOVES:
             b.move(*(MOVES.get(key) or VI_MOVES[key]))
         elif key == "HOME":
@@ -361,6 +433,39 @@ class Editor:
         elif key == ":":
             self.mode, self.cmdline = COMMAND, ""
         # anything else is ignored
+
+    def _results_keys(self, key: str) -> None:
+        """NORMAL mode with the focus in the results window: scroll it, close it or go back."""
+        if self.pasting:
+            return
+        if self.pending == "CTRL_W":
+            self.pending = ""
+            if key in ("w", "W", "k", "UP", "p", "CTRL_W"):
+                self.results_focus = False
+            return
+        total, page = self._results_page()
+        if key == "CTRL_W":
+            self.pending = "CTRL_W"
+        elif key == "ESC":
+            self.results_focus = False
+        elif key == "q":  # like :cclose in Neovim's quickfix window
+            self.close_results()
+        elif key in ("j", "DOWN"):
+            self.results_top += 1
+        elif key in ("k", "UP"):
+            self.results_top -= 1
+        elif key in (" ", "PAGEDOWN"):
+            self.results_top += page
+        elif key in ("b", "PAGEUP"):
+            self.results_top -= page
+        elif key in ("g", "HOME"):
+            self.results_top = 0
+        elif key in ("G", "END"):
+            self.results_top = total
+        elif key in (":", "i", "a", "o"):  # commands and typing work from here too
+            self.results_focus = False
+            self._normal(key)
+        self.results_top = max(0, min(self.results_top, total - page))
 
     def _insert(self, key: str) -> None:
         b = self.buffer
@@ -407,8 +512,15 @@ class Editor:
         if not typed.strip():
             return  # a bare ':' + Enter does nothing, like Neovim
         resp = self.session.handle(":" + typed, self.buffer.text)
+        if resp.kind == "results":
+            self._toggle_results(resp)
+            return
+        if resp.result is not None:  # :w / :wq: the window opens (or refreshes) with the tests
+            self.show_results(resp.result)
         self.show_response(resp)
         if resp.clear_code:
+            self.close_results()
+            self.results = None  # those results were for the old exercise
             self.load_exercise()
             self._show_notice()  # a new exercise may be generated (or a fallback): say so
         if resp.quit:
@@ -419,6 +531,18 @@ class Editor:
                 self.after_pager = PROMPT
             else:
                 self.mode = PROMPT
+
+    def _toggle_results(self, resp) -> None:
+        """:out closes an open results window, or opens it with the last check (Session says
+        "Nothing checked yet" when there is none)."""
+        if self.results_open:
+            self.close_results()
+            self.message = ""
+        elif resp.result is not None:
+            self.show_results(resp.result)
+            self.message, self.message_kind = resp.text, "results"  # cut, never the pager
+        else:
+            self.message, self.message_kind = resp.text, "results"
 
     def show_response(self, resp) -> None:
         text = ("Hint: " if resp.kind == "hint" else "") + resp.text
@@ -471,7 +595,9 @@ _PAGER_COLORS = {"help": PALETTE["help"], "solution": PALETTE["solution"]}
 # With NO_COLOR the status line falls back to reverse video, so it still stands out.
 _NO_COLOR_STYLES = {"mode_normal": "bold reverse", "mode_insert": "bold reverse",
                     "mode_command": "bold reverse", "status_bar": "reverse",
-                    "status_pos": "reverse"}
+                    "status_pos": "reverse", "results_bar": "reverse",
+                    "results_bar_focus": "bold reverse", "results_pass_block": "bold",
+                    "results_fail_block": "bold"}
 _COLOR_SYSTEMS = {"standard": ColorSystem.STANDARD, "256": ColorSystem.EIGHT_BIT,
                   "truecolor": ColorSystem.TRUECOLOR, "windows": ColorSystem.WINDOWS}
 _consoles: Dict[Tuple[Optional[str], int, bool], Console] = {}
@@ -595,7 +721,8 @@ def _editor_frame(ed: Editor, width: int, height: int, no_color: bool = False):
     b = ed.buffer
     rows: List[Text] = _header_texts(ed.session.exercise, width, height)
     header = len(rows)
-    body = height - header - 2
+    window = ed.results_height(width, height, header)
+    body = height - header - 2 - window
     top = _visible_top(ed.top, b.row, body)
     numw = max(3, len(str(len(b.lines))))
     gutter = numw + 1
@@ -612,12 +739,17 @@ def _editor_frame(ed: Editor, width: int, height: int, no_color: bool = False):
             rows.append(Text("~", style=PALETTE["filler"]))
     if ed.intro_visible:
         _overlay_intro(rows, header, width, getattr(ed.session, "notice", ""))
+    focus = bool(window) and ed.results_focus and ed.mode == NORMAL
+    if window:
+        rows.extend(_results_window(ed, width, window, focus, no_color))
 
     label = {INSERT: "INSERT", COMMAND: "COMMAND"}.get(ed.mode, NORMAL)
     status_row = _status_line(label, ed.session.exercise.id, f"{b.row + 1},{b.col + 1}", width,
                               no_color)
 
     cursor = (header + (b.row - top) + 1, min(width, gutter + b.col + 1))
+    if focus:  # on the first row of the results window, like the cursor in Neovim's quickfix
+        cursor = (header + body + 2, 1)
     last = width - 1  # never write the bottom-right cell (some terminals scroll)
     if ed.mode == COMMAND:
         line = ":" + ed.cmdline
@@ -632,11 +764,48 @@ def _editor_frame(ed: Editor, width: int, height: int, no_color: bool = False):
         cursor = (height, len(line) + 1)
     elif ed.mode == INSERT and not ed.message:
         bottom = Text("-- INSERT --", style=PALETTE["insert_label"])
+    elif focus and not ed.message:
+        bottom = Text(_clip(RESULTS_HELP, last), style=PALETTE["muted"])
     else:
         bottom = _message(ed, last)
     rows.append(status_row)
     rows.append(bottom)
     return rows, cursor
+
+
+def _results_window(ed: Editor, width: int, window: int, focus: bool,
+                    no_color: bool) -> List[Text]:
+    """The title bar and the visible part of the results (window rows in total)."""
+    lines = ed.results_lines(width)
+    page = window - 1
+    top = max(0, min(ed.results_top, len(lines) - page))
+    rows = [_results_bar(ed.results, width, top, page, len(lines), focus, no_color)]
+    rows.extend(lines[top:top + page])
+    rows.extend(Text("") for _ in range(window - len(rows)))
+    return rows
+
+
+def _results_bar(result, width: int, top: int, page: int, total: int, focus: bool,
+                 no_color: bool) -> Text:
+    """ results  3/5 passed  ............................ 1-8 of 12 · Ctrl-W w scroll · :out close """
+    bar = _style("results_bar", no_color)
+    label = (" results ", _style("results_bar_focus" if focus else "results_bar", no_color))
+    summary = (f" {style.results_title(result)} ",
+               _style("results_pass_block" if result.passed else "results_fail_block", no_color))
+    hints = []
+    if total > page:
+        hints.append(f"{top + 1}-{min(top + page, total)} of {total}")
+    if focus:
+        hints.append("q close · Esc back")
+    else:
+        hints.append("Ctrl-W w scroll · :out close" if total > page else ":out close")
+    right = f" {' · '.join(hints)} "
+    fill = width - len(label[0]) - len(summary[0]) - len(right)
+    if fill < 1:
+        right, fill = "", width - len(label[0]) - len(summary[0])
+    line = Text.assemble(label, summary, (" " * max(0, fill), bar), (right, bar))
+    line.truncate(width)
+    return line
 
 
 def _intro_lines(width: int) -> List[Text]:

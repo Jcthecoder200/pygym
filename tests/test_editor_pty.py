@@ -96,3 +96,54 @@ def test_type_and_wq_in_a_real_terminal(tmp_path):
             except OSError:
                 pass
         os.close(fd)
+
+
+def test_check_opens_the_results_window_in_a_real_terminal(tmp_path):
+    env = dict(os.environ, PYGYM_HOME=str(tmp_path), PYTHONDONTWRITEBYTECODE="1", TERM="xterm")
+    env.pop("COLUMNS", None)
+    env.pop("LINES", None)
+    pid, fd = pty.fork()
+    if pid == 0:
+        try:
+            fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
+            os.execve(sys.executable, [sys.executable, "-c", CHILD], env)
+        finally:
+            os._exit(127)
+    deadline = time.monotonic() + 15
+    reader = Reader(fd)
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
+        mark = reader.until(b"NORMAL", 0, deadline)
+        os.write(fd, b"i")
+        mark = reader.until(b"-- INSERT --", mark, deadline)
+        os.write(fd, b"print('pairs', keys)\rreturn dict(zip(keys, keys))")
+        mark = reader.until(b"keys))", mark, deadline)
+        os.write(fd, b"\x1b")
+        mark = reader.until(b"NORMAL", mark, deadline)
+        time.sleep(0.05)
+        os.write(fd, b":w\r")
+        mark = reader.until(b" results  1/3 passed ", mark, deadline)   # the window opened
+        mark = reader.until(b"pairs ['x', 'y']", 0, deadline)            # with the print()s
+        os.write(fd, b"\x17w")                                           # Ctrl-W w: focus it
+        mark = reader.until(b"-- RESULTS --", mark, deadline)
+        os.write(fd, b"q:q!\r")                                           # close it, quit
+        while not reader.eof and time.monotonic() < deadline:
+            reader.pump(0.1)
+        status = None
+        while time.monotonic() < deadline:
+            done, status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                break
+            time.sleep(0.05)
+        assert status is not None and os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0, \
+            reader.out[-400:]
+        pid = 0
+        assert b"Bye! (code not checked)" in reader.out.split(b"\x1b[?1049l")[-1]
+    finally:
+        if pid:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+            except OSError:
+                pass
+        os.close(fd)

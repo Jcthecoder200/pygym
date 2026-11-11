@@ -11,7 +11,8 @@ A command without code (%pygym :h, or an empty %%pygym :q cell) passes code=None
 uses the code from the last check. IPython is imported only here, lazily, and is never required.
 
 Output goes through Rich (the same panels as the line CLI, see style.py): in a notebook Rich
-shows it as HTML, elsewhere (a plain IPython shell) as text.
+shows it as HTML, elsewhere (a plain IPython shell) as text. A check prints the test table (call,
+expected, got, ✓/✗) and each test's print() output under the cell; %pygym :out prints it again.
 """
 from __future__ import annotations
 
@@ -25,8 +26,8 @@ from . import style
 _active = None  # the Session the magics talk to (None = no exercise running)
 
 INSTRUCTIONS = ("Write your function in a new cell that starts with  %%pygym :w   "
-                "(other commands: %pygym :h, %pygym :help, %pygym :solution, %pygym :s, "
-                "%%pygym :wq, %pygym :q)")
+                "(other commands: %pygym :out, %pygym :h, %pygym :help, %pygym :solution, "
+                "%pygym :s, %%pygym :wq, %pygym :q)")
 NO_SESSION = 'No active exercise. Run exercise("zip") first.'
 
 

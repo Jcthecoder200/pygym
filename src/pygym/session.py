@@ -19,6 +19,7 @@ from .models import Exercise, GradeResult, Response
 COMMANDS: List[Tuple[str, str]] = [
     (":w", "check your code"),
     (":wq", "check, then quit if it passes (if it fails you can reveal the solution)"),
+    (":out", "show the test results of the last check again (editor: open / close them)"),
     (":q", "quit (refused if your code changed since the last :w or the last check failed)"),
     (":q!", "quit and throw your code away"),
     (":h", "hint"),
@@ -29,10 +30,15 @@ COMMANDS: List[Tuple[str, str]] = [
 ]
 COMMAND_NAMES = frozenset(name for name, _ in COMMANDS)
 # Short descriptions for tight spaces (the editor's start screen). Same commands as COMMANDS.
-SHORT = {":w": "check your code", ":wq": "check, then quit", ":q": "quit",
+SHORT = {":w": "check your code", ":wq": "check, then quit", ":out": "show test results",
+         ":q": "quit",
          ":q!": "quit without checking", ":h": "hint", ":help": "the function's documentation",
          ":s": "skip to another exercise", ":solution": "show the solution",
          ":intro": "show this list again"}
+
+
+NOTHING_CHECKED = "Nothing checked yet. :w to check your code."
+OLD_RESULTS = "These results are from before your last changes: :w to check again."
 
 
 def commands_text() -> str:
@@ -76,6 +82,7 @@ class Session:
         self.seen: Set[str] = set()
         self.saved_code: Optional[str] = None  # the code at the last :w (None = never checked)
         self.last_passed: Optional[bool] = None  # result of the last :w (None = never checked)
+        self.last_result: Optional[GradeResult] = None  # the last check, for :out
         self.exercise: Exercise = self._next()
 
     def _next(self) -> Exercise:
@@ -157,19 +164,31 @@ class Session:
             return Response("Skipped. Here is another one.", "exercise", clear_code=True)
         if cmd == ":solution":
             return Response(self.solution(), "solution")
+        if cmd == ":out":
+            return self._results(code)
         if cmd == ":intro":
             return Response(commands_text(), "commands")
-        return Response(f"Unknown command '{cmd}'. Commands: {' '.join(n for n, _ in COMMANDS)}",
+        # "Try:" not "Commands:": with :out the list must still fit an 80-column message line
+        return Response(f"Unknown command '{cmd}'. Try: {' '.join(n for n, _ in COMMANDS)}",
                         "unknown")
 
     def is_dirty(self, code: str) -> bool:
         """True if the code changed since the last :w (empty code that was never checked is clean)."""
         return _normalize(code) != _normalize(self.saved_code)
 
+    def _results(self, code: str) -> Response:
+        result = self.last_result
+        if result is None:
+            return Response(NOTHING_CHECKED, "results")
+        if self.is_dirty(code):
+            return Response(OLD_RESULTS, "results", result=result)
+        return Response(f"Last check: {result.message}", "results", result=result)
+
     def _check(self, code: str, then_quit: bool) -> Response:
         result = self.submit(code)
         self.saved_code = code
         self.last_passed = result.passed
+        self.last_result = result
         if result.passed:
             if then_quit:
                 return Response(f"Passed! {result.message}", "pass", quit=True, result=result)
@@ -216,4 +235,5 @@ class Session:
         self.exercise = self._next()
         self.saved_code = None
         self.last_passed = None
+        self.last_result = None
         return self.exercise

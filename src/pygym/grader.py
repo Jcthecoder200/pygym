@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from . import sandbox
 from ._runner import ALLOWED_IMPORTS, import_permitted
-from .models import Exercise, GradeResult
+from .models import NOT_RUN, TIMED_OUT, Exercise, GradeResult, TestResult
 
 BROKEN_EXERCISE = ("This exercise is broken (its expected results are missing). "
                    "Use :s to skip it.")
@@ -170,28 +170,71 @@ def grade(user_code: str, exercise: Exercise, timeout: float = 5.0) -> GradeResu
         return GradeResult(False, "error", f"Syntax error on line {e.lineno}: {e.msg}")
 
     target = exercise.target_function
-    if not _uses_target(tree, target):
-        return GradeResult(False, "target_not_used",
-                           f"This exercise is about '{target}'. Try using it.")
-
+    # The code runs even when the target is missing: the rows show what it does (the verdict
+    # stays "use the target").
     res = run_in_sandbox(user_code, exercise.function_name, target, tests, timeout,
                          allowed_imports=exercise.allowed_imports, files=exercise.files,
                          http_fixtures=exercise.http_fixtures)
+    status = res.get("status")
+    outputs = res.get("outputs") or []
+    complete = status == "ok" and len(outputs) == len(expected)
+    rows = rows_from_run(tests, expected, res) if complete or status == "timeout" else []
+    setup = str(res.get("setup_stdout") or "")
 
-    if res["status"] == "timeout":
-        return GradeResult(False, "timeout", "Your code ran too long (possible infinite loop).")
-    if res["status"] == "error":
-        return GradeResult(False, "error", res.get("message", "Unknown error."))
+    def result(passed: bool, reason: str, message: str) -> GradeResult:
+        return GradeResult(passed, reason, message, tests=rows, setup_stdout=setup)
 
-    outputs = res.get("outputs", [])
-    if len(outputs) != len(expected):
-        return GradeResult(False, "error", "Your code did not return a result for every test.")
-    for out, want in zip(outputs, expected):
-        if "error" in out or not values_equal(out["value"], want):
-            return GradeResult(False, "wrong_output", "Not quite right yet." + _blocked_note(res))
+    if not _uses_target(tree, target):
+        return result(False, "target_not_used", f"This exercise is about '{target}'. Try using it.")
+    if status == "timeout":
+        return result(False, "timeout", _timeout_message(res))
+    if status == "error":
+        return result(False, "error", res.get("message", "Unknown error."))
+    if not complete:
+        return result(False, "error", "Your code did not return a result for every test.")
+    passed = sum(1 for r in rows if r.passed)
+    if passed < len(rows):
+        word = "test" if len(rows) == 1 else "tests"
+        return result(False, "wrong_output", f"Not quite right yet: {passed} of {len(rows)} "
+                                             f"{word} passed." + _blocked_note(res))
 
     # -1 = this kind of target can't be counted (methods like str.join): static check only.
     if not target_called(res.get("target_calls"), tree, target):
-        return GradeResult(False, "target_not_used",
-                           f"Your function never actually called '{target}'.")
-    return GradeResult(True, "ok", "Correct!")
+        return result(False, "target_not_used",
+                      f"Your function never actually called '{target}'.")
+    return result(True, "ok", "Correct!")
+
+
+def rows_from_run(tests: List[list], expected: List[Any], res: dict) -> List[TestResult]:
+    """One TestResult per test from the runner's reply. After a timeout: the finished tests, the
+    one that was running (TIMED_OUT) and the ones after it (NOT_RUN); no rows when the run was
+    stopped while the code was loading or nobody knows where."""
+    outputs = res.get("outputs") or []
+    running = res.get("running") if res.get("status") == "timeout" else None
+    if res.get("status") == "timeout" and not (isinstance(running, int) and running >= 0):
+        return []
+    rows: List[TestResult] = []
+    for i, (args, want) in enumerate(zip(tests, expected)):
+        out = outputs[i] if i < len(outputs) and isinstance(outputs[i], dict) else None
+        if out is None:
+            error = TIMED_OUT if i == running else NOT_RUN
+            printed = str(res.get("stdout") or "") if i == running else ""
+            rows.append(TestResult(i + 1, args, want, error=error, stdout=printed))
+        elif "error" in out:
+            rows.append(TestResult(i + 1, args, want, error=str(out["error"]),
+                                   stdout=str(out.get("stdout") or "")))
+        else:
+            got = out.get("value")
+            rows.append(TestResult(i + 1, args, want, got=got, passed=values_equal(got, want),
+                                   stdout=str(out.get("stdout") or "")))
+    return rows
+
+
+def _timeout_message(res: dict) -> str:
+    """Short enough for the editor's message line; the rows show the call."""
+    running = res.get("running")
+    if running == -1:
+        return "Your code ran too long (possible infinite loop) while loading (top-level code)."
+    if isinstance(running, int) and running >= 0:
+        return f"Your code ran too long (possible infinite loop) in test {running + 1}."
+    return "Your code ran too long (possible infinite loop)."

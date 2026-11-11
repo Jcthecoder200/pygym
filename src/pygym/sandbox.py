@@ -35,8 +35,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from ._runner import (DENIED_MODULES, SAFE_MODULES, SYSTEM_MODULES, denied_reason,
-                      import_permitted)
+from ._runner import (DENIED_MODULES, PROGRESS_MARK, SAFE_MODULES, SYSTEM_MODULES,
+                      denied_reason, import_permitted, read_progress)
 
 __all__ = ["LEVELS", "level", "label", "run", "refusal", "install_hint", "importable",
            "check_files", "check_fixtures", "DENIED_MODULES", "import_permitted"]
@@ -250,7 +250,9 @@ def _remove_tree(root: str) -> None:
 
 def run(job: dict, timeout: float = 5.0, lv: Optional[str] = None) -> dict:
     """Run one job (see _runner.py) in a new folder at level `lv` (default: level()).
-    Returns the runner's JSON dict, or {"status": "timeout"} / {"status": "error", ...}."""
+    Returns the runner's JSON dict, or {"status": "error", ...}, or for a run that took too long
+    {"status": "timeout", "running": test index (-1 = the setup, None = unknown), "outputs": the
+    finished tests, "setup_stdout": str, "stdout": what the running test printed}."""
     lv = lv or level()
     root = _new_root()
     try:
@@ -259,14 +261,16 @@ def run(job: dict, timeout: float = 5.0, lv: Optional[str] = None) -> dict:
             proc = subprocess.run(cmd, input=json.dumps(job), capture_output=True, text=True,
                                   timeout=timeout, cwd=os.path.join(root, "work"),
                                   env=child_env())
-        except subprocess.TimeoutExpired:
-            return {"status": "timeout"}
+        except subprocess.TimeoutExpired as e:
+            # what the runner reported before it was stopped: which test, what it printed
+            return dict(read_progress(e.stderr), status="timeout")
         except OSError as e:
             return {"status": "error", "message": f"The sandbox could not start ({e})."}
         try:
             result = json.loads(proc.stdout)
         except json.JSONDecodeError:
-            first = (proc.stderr or "").strip().splitlines()[:1]
+            first = [ln for ln in (proc.stderr or "").strip().splitlines()
+                     if not ln.startswith(PROGRESS_MARK)][:1]
             if first and first[0].startswith(("bwrap:", "sandbox-exec:")):
                 return {"status": "error", "message": f"The sandbox could not start ({first[0]})."}
             return {"status": "error", "message": "Your code crashed or used too much memory."}

@@ -93,3 +93,26 @@ def test_skip_shows_new_header():
 def test_intro_command_reprints_command_list():
     out, _ = drive(["def combine(keys, values):", ":intro", "    return dict(zip(keys, values))", ":wq"])
     assert out.count(":solution") >= 2 and "Passed!" in out  # intro at start + :intro; code kept
+
+
+def test_check_prints_the_table_and_prints():
+    out, _ = drive(["def combine(keys, values):", "    print('pairs', keys)",
+                    "    return dict(zip(keys, keys))", ":w", ":out", ":q!"])
+    first, _, _ = out.partition("Last check:")  # the :w output, before the :out output
+    for needle in ("call", "expected", "got", "combine([], [])","combine(['x', 'y'], [1, 2, 3, 4])",
+                   "{'x': 1, 'y': 2}", "{'x': 'x', 'y': 'y'}", "✓", "✗",
+                   "print() output of test 2", "│ pairs ['x', 'y']"):
+        assert needle in first, needle
+    assert first.index("tests  1/3 passed") < first.index("✗ Failed: Not quite right yet")
+    assert "Last check: Not quite right yet: 1 of 3 tests passed." in out
+    assert out.count("tests  1/3 passed") == 2  # :out printed the table again
+
+
+def test_passing_check_shows_the_table_too():
+    out, _ = drive(["def combine(keys, values):", "    return dict(zip(keys, values))", ":wq"])
+    assert "tests  3/3 passed" in out and "✗" not in out and "Passed!" in out
+
+
+def test_out_before_a_check():
+    out, _ = drive([":out", ":q"])
+    assert "Nothing checked yet. :w to check your code." in out

@@ -4,10 +4,20 @@ Job:    {code, function_name, target, inputs, allowed_imports?: [str], files?: {
          http_fixtures?: {path: response}, allow_open?: bool}
         target is the full name: "zip", "str.join", "statistics.median", "numpy.cumsum".
         Or {probe_import: "numpy"}: only check that the library imports here.
-Result: {status: "ok", outputs: [...], target_calls: int, blocked: [str]}
-      | {status: "error", message: str, blocked: [str]}
+Result: {status: "ok", outputs: [...], target_calls: int, blocked: [str], setup_stdout?: str}
+      | {status: "error", message: str, blocked: [str], setup_stdout?: str}
+        outputs: one {"value": ...} or {"error": "TypeError: ..."} per test, plus "stdout" when
+        that test printed something. Every test runs, also after one raised.
+        setup_stdout: what the code printed while it was loaded (top-level code).
+        Printed text is cut after STDOUT_LIMIT characters per test (and for the setup).
         target_calls is -1 when the call can't be counted (methods of built-in types, numpy ufuncs).
         blocked lists what the audit hook stopped (writes outside the folder, network, ...).
+
+Progress (stderr): lines that start with PROGRESS_MARK, each followed by one JSON object:
+        {"stage": "setup"} / {"stage": "test", "i": 0} when a stage starts, {"print": text} for
+        printed text (the same capped text) and {"done": output} when a test finished. Only read
+        when the run times out (the JSON result never comes then): read_progress() turns them
+        into "which test was running and what had it printed".
 
 pygym.sandbox starts this file in a NEW temporary folder <root>: the current directory is
 <root>/work (the exercise's `files` are written there before every test), temporary files go to
@@ -89,6 +99,9 @@ MEMORY_LIMIT = 512 * 1024 * 1024
 FILE_SIZE_LIMIT = 16 * 1024 * 1024
 MAX_ITEMS = 100_000                    # longest iterator turned into a list
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1"})
+STDOUT_LIMIT = 4000                    # printed characters kept per test (and for the setup)
+STDOUT_CUT = "… (output cut)"
+PROGRESS_MARK = "\x1epygym "           # starts every progress line on stderr
 
 
 def denied_reason(name: str) -> str:
@@ -468,6 +481,114 @@ class Guard:
                 self.block(f"looking up {args[0]!r} on the network (only BASE_URL works)")
 
 
+# ----- print() output and progress ----------------------------------------------------------
+
+
+class Progress:
+    """Writes progress lines to stderr (a file descriptor), straight away: the parent reads them
+    when the run is killed for taking too long. Never raises."""
+
+    def __init__(self, fd=None):
+        self.fd = fd
+
+    def send(self, **item):
+        if self.fd is None:
+            return
+        try:
+            os.write(self.fd, (PROGRESS_MARK + json.dumps(item) + "\n").encode("utf-8", "replace"))
+        except Exception:  # noqa: BLE001  (a closed stderr must not change the result)
+            self.fd = None
+
+
+class Capture(io.TextIOBase):
+    """sys.stdout while exercise code runs: keeps the first STDOUT_LIMIT characters of one stage
+    (the setup or one test), streams them to the progress channel and drops the rest."""
+
+    def __init__(self, progress=None):
+        super().__init__()
+        self.progress = progress or Progress()
+        self.start()
+
+    def start(self):
+        self.parts, self.size, self.cut = [], 0, False
+
+    @property
+    def encoding(self):
+        return "utf-8"
+
+    def writable(self):
+        return True
+
+    def isatty(self):
+        return False
+
+    def write(self, s):
+        if not isinstance(s, str):
+            raise TypeError(f"write() argument must be str, not {type(s).__name__}")
+        n = len(s)
+        if self.cut or not n:
+            return n
+        room = STDOUT_LIMIT - self.size
+        if n > room:
+            s, self.cut = s[:room], True
+        if s:
+            self.parts.append(s)
+            self.size += len(s)
+            self.progress.send(print=s)
+        return n
+
+    def take(self) -> str:
+        """The text of this stage (with STDOUT_CUT when it was cut); starts the next stage."""
+        text = "".join(self.parts)
+        if self.cut:
+            text += ("" if text.endswith("\n") or not text else "\n") + STDOUT_CUT
+        self.start()
+        # lone surrogates ("\ud800") can't be shown or sent as UTF-8
+        return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def _joined(printed) -> str:
+    text = "".join(printed)
+    if len(text) >= STDOUT_LIMIT:
+        text += ("" if text.endswith("\n") else "\n") + STDOUT_CUT
+    return text
+
+
+def read_progress(stderr) -> dict:
+    """What a killed run had done, from its stderr (str or bytes; other lines are ignored):
+    {"running": index of the test that was running (-1 = the setup, None = unknown),
+     "outputs": the finished tests, "setup_stdout": str, "stdout": what the running test printed}.
+    """
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    running, outputs, setup, printed = None, [], "", []
+    for line in (stderr or "").split("\n"):
+        if not line.startswith(PROGRESS_MARK):
+            continue
+        try:
+            item = json.loads(line[len(PROGRESS_MARK):])
+        except ValueError:
+            continue                        # the last line may be cut off by the kill
+        if not isinstance(item, dict):
+            continue
+        if item.get("stage") == "setup":
+            running, printed = -1, []
+        elif item.get("stage") == "test" and isinstance(item.get("i"), int):
+            if running == -1:
+                setup = _joined(printed)
+            running, printed = item["i"], []
+        elif isinstance(item.get("print"), str):
+            printed.append(item["print"])
+        elif isinstance(item.get("done"), dict) and isinstance(running, int) and running >= 0:
+            if len(outputs) == running:
+                outputs.append(item["done"])
+            printed = []
+    text = _joined(printed)
+    if running == -1:
+        setup, text = text, ""
+    return {"running": running, "outputs": outputs, "setup_stdout": setup, "stdout": text}
+
+
 # ----- main ---------------------------------------------------------------------------------
 
 
@@ -567,7 +688,10 @@ def main():
     base_url = ""
     guard = Guard(roots)
     real_out = sys.stdout
-    sys.stdout = io.StringIO()            # swallow the user's print()s
+    progress = Progress(2)
+    captured = Capture(progress)
+    sys.stdout = captured                 # the user's print()s, kept per test (the JSON result
+    setup_stdout = None                   # goes to out_fd, never to sys.stdout)
     try:
         write_files(work, files)
         if fixtures:
@@ -578,12 +702,15 @@ def main():
             os.environ["PYGYM_BASE_URL"] = base_url
         if hasattr(sys, "addaudithook"):
             sys.addaudithook(guard)
+        progress.send(stage="setup")
         exec(job["code"], ns)
+        setup_stdout = captured.take()
         fn = ns.get(job["function_name"])
         if not callable(fn):
             raise NameError(f"Your code must define a function named '{job['function_name']}'.")
         outputs = []
         for i, args in enumerate(job["inputs"]):
+            progress.send(stage="test", i=i)
             try:
                 if i:                         # every test starts with the same folder
                     os.makedirs(work, exist_ok=True)
@@ -592,16 +719,25 @@ def main():
                 value = norm(fn(*args))
                 if base_url:
                     value = _replace_text(value, base_url, "BASE_URL")
-                outputs.append({"value": value})
-            except Exception as e:  # noqa: BLE001
-                outputs.append({"error": f"{type(e).__name__}: {e}"})
+                out = {"value": value}
+            except BaseException as e:  # noqa: BLE001  (SystemExit too: the next test still runs)
+                out = {"error": f"{type(e).__name__}: {e}"}
+            printed = captured.take()
+            if printed:
+                out["stdout"] = printed
+            outputs.append(out)
+            progress.send(done=out)
         result = {"status": "ok", "outputs": outputs,
                   "target_calls": calls["n"] if checked else -1}
     except BaseException as e:  # noqa: BLE001
         result = {"status": "error", "message": f"{type(e).__name__}: {e}"}
+        if setup_stdout is None:              # the top-level code raised: keep what it printed
+            setup_stdout = captured.take()
     finally:
         sys.stdout = real_out
     guard.on = False
+    if setup_stdout:
+        result["setup_stdout"] = setup_stdout
     result["blocked"] = list(guard.blocked)
     _write_result(out_fd, result)
 
