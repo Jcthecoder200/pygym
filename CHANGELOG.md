@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 
 ## [Unreleased]
 ### Added
+- **A progress bar while the AI writes the next exercise** (`:s`, `:level 2` in AI mode), so
+  pygym never looks frozen. A model gives no progress of its own, so the bar fills against the
+  20 s budget and the text names the try: `⠙ writing exercise · try 2 of 4 · 7 s`, `try 1
+  rejected: crashed on its tests`, `using a hand-written exercise instead`. Editor: on the message
+  line, redrawn 10 times a second; keys are ignored meanwhile and `Ctrl-C` cancels (the current
+  exercise and the code stay). Line CLI and the menu's first exercise: a transient Rich progress
+  bar (the menu's spinner is gone). Jupyter: one progress line updated in place (a text line per
+  step outside notebooks). Preset exercises show nothing.
+- `pygym.ai.generate_exercise(..., on_progress=None)`: called with
+  `{"attempt", "max_attempts", "elapsed", "budget", "stage", "detail"}` at every step
+  (`asking`, `checking`, `rejected`, `done`, `fallback`); the rest of the contract is unchanged.
+  `engine.short_reason()` turns a rejection into a few words.
+- `Session.start(command, code) -> Job`: like `handle()` without blocking; the exercise is written
+  in a background thread and only applied by `job.result()` (the session and the student's code
+  are untouched until then). `job.done`, `job.progress`, `job.elapsed`, `job.cancel()`,
+  `Session.start_next(level)`, `Session.needs_wait(command)`, `Session.busy`,
+  `Session(..., on_progress=...)` for the first exercise. `handle()` keeps blocking. Generator
+  errors of any kind become the preset fallback.
+- **Automatic level-up.** After 3 exercises solved at a level (`LEVEL_UP_AFTER`; a passing `:w` /
+  `:wq`, once per exercise, not after the solution was shown; skipping does not reset the count)
+  the next exercise is one level higher (at most 3): `Passed! Correct! Level up! Next exercise:
+  intermediate ●●○ (:s)`. pygym never lowers the level by itself. Preset and AI mode alike.
+  `Session.level`, `Session.solved_at_level`.
+- **`:level`** (short **`:lv`**): alone it shows the level and the count (`Level: beginner ●○○ —
+  2 of 3 solved to level up. :level 1-3 to change`); `:level 2`, `:level intermediate`,
+  `:lv i` / `b` / `a` set the level, reset the count and load a new exercise at once. Listed in
+  `COMMANDS`, `:intro` and the start screen. New `Response.kind` `"level"`.
+- The editor's status line shows the level and the count (` ●○○ 2/3 `); the line CLI and Jupyter
+  print `Level: beginner ●○○ 1/3 solved to level up` under a passed check.
+- Commands with an argument: `session.is_command_line()` (used by the line CLI) accepts
+  `:level <one word>`; `:level 2 3`, `x = :level` and `:w 3` stay code / unknown as before.
+- Tests: `tests/test_progress_level.py` (engine events, jobs, cancel, fallback, level-up,
+  `:level` in Session / CLI / editor / Jupyter, command recognition) and
+  `tests/test_progress_pty.py` (the real editor redraws the bar about 10 times a second; Ctrl-C).
 - **Test results after every check.** The student sees every test: the call
   (`combine(['a'], [1])`), the expected value, what the function returned or raised, ✓/✗, and
   what `print()` wrote during that test (and while the code was loading). Shown on a passing
@@ -98,6 +132,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   Windows layer with a fake `msvcrt`), Jupyter and the styles (186 tests in total).
 
 ### Changed
+- `Session(name, difficulty=None)` (and `exercise(name)`) now starts at level 1 instead of a
+  random level: levels need a starting point. `session.difficulty` reads `session.level`.
+- The menu shows the progress bar instead of a spinner while the first exercise is written;
+  Ctrl-C there now cancels and returns to the menu.
+- `LEVELS` and `parse_level` moved from `menu` to `session` (still importable from `menu`).
+- "Unknown command ... Try:" leaves out `:level`, so the line still fits 80 columns.
 - `print()` output is no longer thrown away: the runner keeps it per test (4000 characters each,
   then `… (output cut)`); stray C-level output still goes nowhere, so the JSON result is safe.
 - A wrong answer says how many tests passed: `Not quite right yet: 3 of 5 tests passed.` (was

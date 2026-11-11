@@ -1,6 +1,7 @@
 # Front-end guide (terminal editor, Jupyter, tkinter popup and any future UI)
 
-Last updated: 2026-11-11. Applies to the code on `main` after the "terminal editor + Jupyter
+Last updated: 2026-11-11 (progress bar while the AI writes, levels and `:level`). Applies to the
+code on `main` after the "terminal editor + Jupyter
 magic" change, the Rich look (colours, panels, syntax highlighting), and AI mode with the
 `pygym` main menu (see [The `pygym` command, modes and AI exercises](#the-pygym-command-modes-and-ai-exercises)).
 
@@ -23,6 +24,13 @@ magic" change, the Rich look (colours, panels, syntax highlighting), and AI mode
   command **`:out`** shows the last check's results again. The editor has a results window
   (like Neovim's quickfix window), the CLI and Jupyter print a table. See
   [Test results](#test-results-graderesulttests-and-out); a tkinter how-to is included.
+- **New: a progress bar while the AI writes the next exercise.** `session.start(command, code)`
+  returns a `Job` at once (the exercise is written in a background thread); show `job.progress`
+  until `job.done`, then use `job.result()` (the same `Response` as `handle()`). `handle()` still
+  blocks, for simple front-ends. See [Waiting for the AI](#waiting-for-the-ai-sessionstart-and-job).
+- **New: levels.** After 3 solved exercises at a level the next one is a level higher
+  (`Session.level`, `Session.solved_at_level`, `session.LEVEL_UP_AFTER`); `:level` (short `:lv`)
+  shows or changes it. See [Levels](#levels-level-and-the-automatic-level-up).
 
 ## The `pygym` command, modes and AI exercises
 
@@ -139,8 +147,9 @@ New tests: `tests/test_session.py`, `tests/test_cli.py`.
 | `:q!` | Close without checking | always quits | `quit=True` |
 | `:h` | Hint | — | `kind="hint"` |
 | `:help` | Docs | the target function's docstring (`zip`, `str.join`, `statistics.median`) | `kind="help"` (long text: show in a scrollable area) |
-| `:s` | Skip | loads another exercise, forgets the saved code; may update `Session.notice` | `kind="exercise"`, `clear_code=True`; or `kind="refused"` (no `clear_code`) when no other exercise exists right now (a function without presets whose generation failed) |
-| `:solution` | Solution | — | `kind="solution"` |
+| `:s` | Skip | loads another exercise (at `Session.level`), forgets the saved code; may update `Session.notice`. In AI mode this can take up to 20 s: use `start(":s")` to show a progress bar | `kind="exercise"`, `clear_code=True`; or `kind="refused"` (no `clear_code`) when no other exercise exists right now (a function without presets whose generation failed) |
+| `:solution` | Solution | — (solving this exercise afterwards no longer counts towards the next level; so does `session.solution()`) | `kind="solution"` |
+| `:level` / `:lv` | Level | alone: the level and the count (`Level: beginner ●○○ — 2 of 3 solved to level up. :level 1-3 to change`). `:level 2`, `:level intermediate`, `:lv i` (also `b`, `a`): sets the level, resets the count, loads a new exercise at once (progress bar in AI mode) | alone / same level: `kind="level"`; a new level: `kind="exercise"`, `clear_code=True`; not a level: `kind="refused"` (`'x' is not a level. Use :level 1, 2 or 3 (or b, i, a).`) |
 | `:intro` | Commands / ? | the list of all commands (`session.commands_text()`) | `kind="commands"` |
 | `:out` | Results | the results of the last check again (the editor: opens / closes its results window) | `kind="results"`, `result=` the last `GradeResult` (text `Last check: ...`, or a note that the code changed since); before any check `result=None` and the text `Nothing checked yet. :w to check your code.` |
 
@@ -148,13 +157,20 @@ New tests: `tests/test_session.py`, `tests/test_cli.py`.
 The list with descriptions is `pygym.session.COMMANDS`; use it for tooltips/labels so the
 wording matches the CLI.
 
+**Which lines are commands** (line CLI, and anything else that mixes code and commands): only a
+line that is a command *as a whole*, after trimming spaces. Use `session.is_command_line(line)`:
+`:` + letters/`!` (`:wq`, `:xyz` → unknown command, still not code), or a command that takes an
+argument (`session.ARG_COMMANDS`: `:level`, `:lv`) followed by exactly one word (`:level 2`).
+`:level 2 3`, `x = :level`, `:w 3` and a dict continuation line `    : 1}` are code. The editor
+sends whatever was typed on its `:` line; the Jupyter magic sends the text after `%pygym`.
+
 ## The `Response` contract (`src/pygym/models.py`)
 
 ```python
 @dataclass
 class Response:
     text: str                 # what to show the student
-    kind: str                 # pass | fail | hint | help | solution | commands | results | exercise | refused | unknown | quit
+    kind: str                 # pass | fail | hint | help | solution | commands | results | level | exercise | refused | unknown | quit
     quit: bool = False        # close the window now
     ask_reveal: bool = False  # ask "Reveal the solution?" (yes -> show session.solution())
     clear_code: bool = False  # new exercise: redraw the question and reset the code box
@@ -252,6 +268,122 @@ Call `show_results(r.result)` after **every** check (a passing one too), keep th
 while the student edits, clear it after Skip, and add a "Results" button that calls
 `handle(":out")` (its `result` is `None` before the first check: show `r.text` then).
 
+## Waiting for the AI (`Session.start()` and `Job`)
+
+In AI mode (and in preset mode for a function without presets) `:s` and `:level 2` make a local
+model write the next exercise: up to 4 tries within a 20 s budget, then a fallback. `handle()`
+blocks all that time. A front-end that wants to stay responsive and show progress uses:
+
+```python
+job = session.start(command, code)   # returns at once; same arguments as handle()
+job.done          # True once finished, failed or cancelled (never blocks)
+job.progress      # the latest event (dict, below)
+job.elapsed       # seconds since the job started (for a bar that moves smoothly)
+job.cancel()      # stop waiting: the current exercise stays (result() -> kind "refused", "Cancelled. ...")
+job.wait(0.1)     # block up to 0.1 s; True when done
+resp = job.result()   # call once job.done: applies the new exercise, returns the Response
+```
+
+- Only a command that loads an **AI-written** exercise runs in the background. Every other
+  command, and every preset exercise, is done at once (`job.done` is `True` straight away), so
+  `if not job.done: show the bar` shows nothing for presets. `session.needs_wait(command)` tells
+  the same thing before starting.
+- **Thread safety.** The worker thread never changes the session: the current exercise, the
+  saved code and the results stay as they are until **you** call `job.result()` (on your UI
+  thread). Keep the student's code box untouched until then (the editor ignores keys). While a
+  job is pending, `handle()` / `start()` answer `kind="refused"` (`session.BUSY`), and
+  `session.busy` is `True`.
+- Errors in the generator never escape: they become the preset fallback (with
+  `Session.notice` = `AI mode unavailable (...); using the preset exercises.`), or `kind="refused"`
+  when there is no exercise at all.
+- `session.start_next(level=None)` is the same as `start(":s")` (or `start(":level N")`).
+- The first exercise is generated by the constructor: `Session(name, level, mode,
+  on_progress=callback)` reports to `callback`; the menu runs it in a `Job` too
+  (`Job(lambda report: Session(..., on_progress=report))`).
+
+**The progress event** (from `pygym.ai.generate_exercise(..., on_progress=callback)`, the
+engine's only new parameter; `Job.progress` before the first event is `session.STARTING`):
+
+```python
+{"attempt": 2, "max_attempts": 4, "elapsed": 7.1, "budget": 20.0,
+ "stage": "asking" | "checking" | "rejected" | "done" | "fallback", "detail": "..."}
+```
+
+| stage | when | text (`style.progress_text(event, job.elapsed)`) |
+|---|---|---|
+| `asking` | try n is sent to the model | `writing exercise · try 2 of 4 · 7 s` |
+| `checking` | its reply is validated (the sandbox runs it) | `checking exercise · try 2 of 4 · 9 s` |
+| `rejected` | the reply was not usable; `detail` says why in a few words (`engine.short_reason`) | `try 1 rejected: crashed on its tests · 4 s` |
+| `done` | the exercise is ready | `exercise ready` |
+| `fallback` | no new exercise; `detail` says what happens instead | `using a hand-written exercise instead` / `using an earlier saved exercise` |
+
+A model reports no progress of its own, so the bar is honest about what is known: it fills
+against the time budget (`style.progress_fraction(event, elapsed)` = elapsed / budget, at most
+0.99 until done) and the text names the try. Shared builders: `style.progress_line(event,
+elapsed, width)` (one `Text` row: spinner, text, bar, `Ctrl-C cancels`), `style.spinner_frame()`,
+`style.wait_with_bar(job, console)` (a transient Rich `Progress`; Ctrl-C cancels; returns `False`
+when cancelled).
+
+| Front-end | While the AI writes |
+|---|---|
+| editor | the message line: `⠙ writing exercise · try 2 of 4 · 7 s  ━━━━━━━━━──────────  Ctrl-C cancels`, redrawn 10 times a second; keys are ignored, `Ctrl-C` cancels and keeps the current exercise |
+| line CLI | a transient Rich progress bar (spinner, text, bar); `Ctrl-C` cancels |
+| menu (first exercise) | the same bar (it was a spinner); `Ctrl-C` cancels and goes back to the menu |
+| Jupyter | in a notebook one output line updated in place (no ipywidgets needed), cleared at the end; in the IPython terminal a line `… writing exercise · try 1 of 4` each time the step changes. Interrupting the kernel cancels |
+| tkinter | not yet (`run_tk` unchanged): see below |
+
+### tkinter how-to: the progress bar
+
+```python
+from tkinter import ttk
+from pygym import style
+
+bar = ttk.Progressbar(root, length=300, maximum=100)
+label = tk.Label(root, anchor="w")
+
+def run(cmd):
+    job = session.start(cmd, box.get("1.0", "end-1c"))
+    if job.done:
+        return show_response(job.result())       # presets and every other command
+    box.config(state="disabled")                 # don't let the code change underneath
+    bar.pack(); label.pack()
+    root.bind("<Escape>", lambda e: job.cancel())   # or a Cancel button
+    poll(job)
+
+def poll(job):
+    if not job.done:
+        label.config(text=style.progress_text(job.progress, job.elapsed))
+        bar["value"] = 100 * style.progress_fraction(job.progress, job.elapsed)
+        root.after(100, poll, job)               # ~10 times a second, on the Tk thread
+        return
+    bar.pack_forget(); label.pack_forget()
+    box.config(state="normal")
+    show_response(job.result())                  # result() on the Tk thread, never in a thread
+```
+
+## Levels (`:level` and the automatic level-up)
+
+- `Session.level` (1-3) is the level of the **next** exercise; `Session(name, difficulty)` starts
+  there (`difficulty=None` starts at 1). `session.difficulty` is the old name and returns the same.
+- `Session.solved_at_level` counts exercises solved at this level in this session: a passing
+  `:w` / `:wq`, **once** per exercise, and **not** when the solution was shown before
+  (`:solution`, or `session.solution()` after the reveal prompt). Skipping never resets it.
+- After `session.LEVEL_UP_AFTER` (3) solved, the level goes up by one (at most 3) and the count
+  starts again. The passing check says so: `Passed! Correct! Level up! Next exercise:
+  intermediate ●●○ (:s)` (with `:wq`: the same without ` (:s)`). The next exercise (`:s`) is at the
+  new level, in preset and AI mode (preset: the loader's usual fallback when there is no preset at
+  that level). pygym **never** lowers the level by itself; only `:level` does.
+- The level is kept for the session only (the menu's saved default does not change).
+- Show it: `style.level_badge(session)` → `"●○○ 2/3"` (`"●●●"` at level 3),
+  `style.level_line(session)` → `"Level: beginner ●○○ 1/3 solved to level up"`.
+
+| Front-end | Where the level shows |
+|---|---|
+| editor | a block in the status line, before `row,col`: ` NORMAL    zip-01    ●○○ 2/3  2,5 ` (left out on a very narrow screen) |
+| line CLI / Jupyter | a line under every passed check (`style.response()` adds it); `:level` / `%pygym :level` |
+| exercise panels | unchanged: `zip  ●●○  level 2` is the exercise's own level |
+| tkinter | suggestion: `style.level_badge(session)` in the title or status label, refreshed after each check |
+
 ## Terminal editor (Linux/macOS)
 
 `src/pygym/editor.py`. A small modal editor inspired by Neovim. The terminal handling is
@@ -300,6 +432,8 @@ syntax highlighting come from Rich.
 | pager | arrows, `j` `k`, `Space`, `PageDown` | scroll; `q`, `Esc` or `Enter` closes |
 | prompt | `y` | show the solution in the pager; any other key: no |
 | any | `Ctrl-C` | does **not** quit; shows `Type :q to quit, :q! to quit without checking` |
+| while the AI writes (`:s`, `:level 2` in AI mode) | any key | ignored (the code must not change under the new exercise) |
+| while the AI writes | `Ctrl-C` | cancels: the current exercise and your code stay (`Cancelled. You are still on this exercise.`) |
 
 Pasted text is inserted as it is (no extra auto-indent), also in NORMAL mode, if the terminal
 supports "bracketed paste" (most modern terminals do).
@@ -312,9 +446,21 @@ list of values, pairs them up, and returns a dictionary. ...                    
   1 def combine(keys, values):                                                    <- line numbers,
   2     return dict(zip(keys, values))                                               highlighted code
 ~                                                                                 <- empty space
- INSERT                          zip-01                                     2,35  <- status line
+ INSERT                       zip-01                       ●○○ 0/3  2,35  <- status line (level 0/3)
 -- INSERT --                                                                      <- message / :cmd
 ```
+
+While the AI writes the next exercise (`:s` in AI mode) the message line shows its progress:
+
+```
+ NORMAL                     ai-zip-1-00000001                      ●○○ 0/3  2,5
+⠙ writing exercise · try 2 of 4 · 7 s  ━━━━━━━━━───────────────  Ctrl-C cancels
+```
+
+`Editor(session, w, h, background=True)` (what `run_editor` uses) starts such commands with
+`session.start()`; the run loop calls `editor.tick()` every 0.1 s (`TICK`), which redraws the line
+and applies the job's Response once it is done. With `background=False` (the default, used by the
+tests) commands block as before.
 
 After a `:w` the results window sits between the code and the status line (80x24, failing check):
 
@@ -497,6 +643,8 @@ plain-text fallback. All colours are in `PALETTE` in **`src/pygym/style.py`**, b
 | `error_text` | red | `raised ZeroDivisionError: ...`, a wrong `got` value | `#c62828` |
 | `results_bar` / `results_bar_focus` | black on grey58 / bold black on cyan | editor results window title bar | — |
 | `results_pass_block` / `results_fail_block` | bold black on green / bold white on red | ` 3/5 passed ` in that bar | — |
+| `level` / `status_level` | yellow / yellow on grey23 | `:level` answers and the level line / the `●○○ 2/3` block in the editor's status line | `#c9a400` |
+| `progress_spinner` / `progress_bar` / `progress_rest` | cyan / cyan / grey35 | the spinner and the bar while the AI writes | `ttk.Progressbar` |
 
 Code is highlighted with Pygments' `monokai` theme (`style.CODE_THEME`) on the terminal's own
 background. The Tk column is only a suggestion for a light window background.
