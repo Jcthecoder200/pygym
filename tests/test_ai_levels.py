@@ -271,17 +271,18 @@ def test_level_rules_come_from_levels():
 @pytest.mark.parametrize("level, name", [(1, "beginner"), (2, "intermediate"), (3, "advanced")])
 def test_prompt_contains_the_level_rule(level, name):
     user = build_messages(resolve("sorted"), level)[1]["content"]
-    assert f"Level: {name} ({level}/3): {LEVEL_RULES[level]}" in user
-    assert f"It MUST follow the {name} rule above." in user
-    assert "BIGGER" not in user and "Write one exercise that teaches `sorted`." in user
+    assert f"## LEVEL: {name.upper()}\n" in user
+    assert f"The exact rule: {LEVEL_RULES[level]}." in user
+    assert f"It follows the {name} level." in user
+    assert "BIGGER" not in user and f"Write one {name} exercise that teaches `sorted`." in user
 
 
 def test_bigger_task_prompt():
     user = build_messages(resolve("bin"), 3, bigger=True)[1]["content"]
-    assert "Write one exercise that practises `bin` inside a bigger task." in user
+    assert "Write one advanced exercise that practises `bin` inside a bigger task." in user
     assert "`bin` alone is too small for an advanced exercise, so this is a BIGGER task" in user
-    assert "`bin` is one necessary step" in user and "MUST call `bin(...)`" in user
-    assert LEVEL_RULES[3] in user
+    assert "`bin` is one necessary step" in user and "It calls `bin(...)`" in user
+    assert "## LEVEL: ADVANCED (bigger task)" in user and LEVEL_RULES[3] in user
     # bigger only means something at advanced
     assert "BIGGER" not in build_messages(resolve("bin"), 2, bigger=True)[1]["content"]
 

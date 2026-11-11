@@ -41,7 +41,7 @@ def test_invalid_ai_timeout_is_not_saved():
 def _capture_budget(monkeypatch):
     seen = {}
 
-    def fake_generate(info, level, avoid, settings, timeout, report, bigger=False):
+    def fake_generate(info, level, avoid, settings, timeout, report, bigger=False, seed=None):
         seen["timeout"] = timeout
         raise ai.GenerationUnavailable("stop here")
     monkeypatch.setattr(engine, "_generate", fake_generate)

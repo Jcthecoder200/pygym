@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
+from . import ethics
 from .targets import TargetInfo
 
 VERSION = 1
@@ -57,6 +58,8 @@ wants from it.
 - `{target}` itself does the main work in every situation: it is the natural tool for it.
 - Concrete situations from daily life, work or study (money, sport, travel, school, shopping, \
 weather, text...). No code and no function names.
+- Everyday, neutral topics only: no violence, weapons, drugs, alcohol, gambling, politics, \
+religion, medical diagnosis, adult content or self-harm; no real people, companies or brands.
 - All situations are different from each other.
 
 Example of the exact shape (about `max`, NOT your target):
@@ -85,14 +88,15 @@ def build_messages(info: TargetInfo) -> List[dict]:
 def clean(items) -> List[str]:
     """The usable use cases of a list, in order: strings only, list markers ("1.", "-") and a
     final full stop removed, spaces collapsed, not empty, at most MAX_LENGTH characters,
-    duplicates (ignoring case) dropped, at most ASK_MAX of them."""
+    duplicates (ignoring case) dropped, none that breaks the plain content check
+    (ethics.problem: a sensitive word, a real-looking email), at most ASK_MAX of them."""
     out: List[str] = []
     seen = set()
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, str):
             continue
         text = " ".join(_MARKER.sub("", item).split()).rstrip(".").strip()
-        if not text or len(text) > MAX_LENGTH or text.lower() in seen:
+        if not text or len(text) > MAX_LENGTH or text.lower() in seen or ethics.problem(text):
             continue
         seen.add(text.lower())
         out.append(text)

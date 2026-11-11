@@ -60,7 +60,8 @@ def test_ollama_request_body(http):
     body = req["body"]
     assert body["model"] == "qwen2.5:1.5b" and body["stream"] is False
     assert body["format"] == SCHEMA and body["messages"] == MESSAGES
-    assert body["options"] == {"num_predict": 700, "temperature": 0.8, "seed": 42}
+    assert body["options"] == {"num_predict": 700, "temperature": 0.8, "seed": 42,
+                               "num_ctx": OllamaProvider.NUM_CTX}
     assert "think" not in body  # the answer to /api/show listed no "thinking" capability
     assert req["timeout"] == pytest.approx(7.0, abs=0.5)  # minus the time /api/show took
 

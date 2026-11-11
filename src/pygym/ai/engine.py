@@ -1,6 +1,7 @@
 """The generate loop: prompt -> provider -> validate -> cache, inside a time budget."""
 from __future__ import annotations
 
+import json
 import os
 import random
 import time
@@ -10,7 +11,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 from .. import config
 from ..models import Exercise
 from . import cache, usecases
-from .prompt import build_messages, schema_for
+from .prompt import build_messages, schema_for, self_review_messages
 from .providers import ProviderError, get_provider
 from .targets import TargetInfo, UnknownTarget, resolve
 from .validate import InvalidExercise, to_exercise
@@ -21,7 +22,7 @@ MAX_ATTEMPTS = 10                # the time budget is the real limit; this only 
 MIN_TIME_FOR_RETRY = 3.0      # seconds left that are worth another model call
 SANDBOX_TIMEOUT = 5.0
 DEFAULT_TIMEOUT = 60.0           # seconds for one exercise (config: ai_timeout)
-MAX_TOKENS = 700
+MAX_TOKENS = 900                 # 700 cut 5 of 103 measured replies (all then invalid JSON)
 BASE_TEMPERATURE = 0.8
 STATUS_TTL = 10.0
 
@@ -121,6 +122,8 @@ _SHORT_REASONS = (
     ("not allow", "used something not allowed"),
     ("blocked", "used something not allowed"),
     ("is missing", "left out a part"),
+    ("sensitive topic", "topic not everyday or neutral"),
+    ("email address", "used real-looking personal data"),
 )
 
 # The stages of on_progress events, in the order they usually come ("ideas" only when the
@@ -160,7 +163,7 @@ def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] 
                       settings: Optional[config.Settings] = None,
                       timeout: Optional[float] = None,
                       on_progress: Optional[ProgressCallback] = None,
-                      bigger: bool = False) -> Exercise:
+                      bigger: bool = False, seed: Optional[int] = None) -> Exercise:
     """A new, validated exercise about `target` at level `difficulty` (1-3).
 
     The reference solution must fit the level (levels.check_level: no branch or loop at
@@ -185,6 +188,12 @@ def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] 
     exercise is ready; "fallback": no new exercise, detail says what happens instead. A model
     gives no progress of its own, so a bar can only fill against elapsed / budget. An Exception
     raised by on_progress is ignored; a BaseException (a cancel) ends the generation.
+
+    The prompt shows example exercises of the same level (examples.py); a fresh try (not a
+    repair) takes other examples, like it takes another use case. With the setting
+    ai_self_review on, each reply is sent back once for the model to review and fix before it
+    is validated (two calls per try). seed (tests, experiments): makes the use case, the
+    examples and the model's sampling seeds repeatable.
     """
     if _turned_off():
         raise GenerationUnavailable("AI mode is turned off (PYGYM_NO_AI)")
@@ -199,7 +208,8 @@ def generate_exercise(target, difficulty, *, avoid_ids: Optional[Iterable[str]] 
         timeout = float(getattr(settings, "ai_timeout", DEFAULT_TIMEOUT))
     report = _reporter(on_progress, timeout)
     try:
-        return _generate(info, level, avoid, settings, timeout, report, bigger=bigger)
+        return _generate(info, level, avoid, settings, timeout, report, bigger=bigger,
+                         seed=seed)
     except GenerationUnavailable:
         raise
     except Exception as e:  # noqa: BLE001  (a bug here must not crash a lesson)
@@ -226,8 +236,25 @@ def _use_cases(info: TargetInfo, provider, timeout: float, time_left, rng, repor
     return usecases.fetch(info, provider, slice_, seed=rng.randrange(2 ** 31)) or []
 
 
+def _self_review(provider, messages: List[dict], raw: str, info: TargetInfo, level: int,
+                 temperature: float, seed: int, time_left) -> str:
+    """The model's own review of its reply (setting ai_self_review). The first reply is kept
+    when there is no time for the review, the call fails or the review is not JSON."""
+    if time_left() <= MIN_TIME_FOR_RETRY:
+        return raw
+    try:
+        reviewed = provider.chat(self_review_messages(messages, raw, info, level),
+                                 schema_for(info), temperature=temperature,
+                                 max_tokens=MAX_TOKENS, seed=seed,
+                                 timeout=max(time_left(), 0.1))
+        json.loads(reviewed)
+    except (ProviderError, TypeError, ValueError):
+        return raw
+    return reviewed
+
+
 def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float,
-              report=None, bigger: bool = False) -> Exercise:
+              report=None, bigger: bool = False, seed: Optional[int] = None) -> Exercise:
     if report is None:
         report = _reporter(None, timeout)
     deadline = clock() + max(float(timeout), 0.0)
@@ -240,30 +267,37 @@ def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float
     except ProviderError as e:
         raise GenerationUnavailable(str(e)) from None
     generator = f"{provider.name}:{provider.model}"
+    review = bool(getattr(settings, "ai_self_review", False))
     earlier = cache.load(info.name)
     known_ids = {e.id for e in earlier} | avoid
-    rng = random.Random()
+    rng = random.Random(seed)
     ideas = _use_cases(info, provider, timeout, time_left, rng, report)
     use_case = usecases.pick(info.name, ideas, rng) if ideas else None
+    example_seed = rng.randrange(2 ** 31)
     problem, repair, fresh_retries, tries = "", None, 0, 0
     stop_reason = ""
 
     while tries < MAX_ATTEMPTS and time_left() > 0 and (tries == 0 or time_left() > MIN_TIME_FOR_RETRY):
-        if tries and repair is None and ideas:
-            use_case = usecases.pick(info.name, ideas, rng)   # a fresh try: another situation
+        if tries and repair is None:
+            example_seed = rng.randrange(2 ** 31)           # a fresh try: other examples ...
+            if ideas:
+                use_case = usecases.pick(info.name, ideas, rng)   # ... and another situation
         messages = build_messages(info, level, use_case=use_case,
                                   avoid=_avoid_lines(earlier, avoid), repair=repair,
-                                  bigger=bigger)
+                                  bigger=bigger, example_seed=example_seed)
         tries += 1
         report("asking", tries)
+        temperature = min(BASE_TEMPERATURE + 0.1 * fresh_retries, 1.2)
         try:
-            raw = provider.chat(messages, schema_for(info),
-                                temperature=min(BASE_TEMPERATURE + 0.1 * fresh_retries, 1.2),
+            raw = provider.chat(messages, schema_for(info), temperature=temperature,
                                 max_tokens=MAX_TOKENS, seed=rng.randrange(2 ** 31),
                                 timeout=max(time_left(), 0.1))
         except ProviderError as e:
             stop_reason = str(e)
             break                                   # server down or model missing: stop now
+        if review:
+            raw = _self_review(provider, messages, raw, info, level, temperature,
+                               rng.randrange(2 ** 31), time_left)
         report("checking", tries)
         try:
             ex = to_exercise(raw, info, level, generator,

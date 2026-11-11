@@ -33,6 +33,7 @@ class Settings:
     library: str = "builtins"     # the library used last in the menu
     prefetch: bool = True         # write the next AI exercise while the student works
     ai_timeout: int = 60          # seconds the AI may spend on one exercise (10-300)
+    ai_self_review: bool = False  # the model reviews its own reply once before the checks
 
 
 _DEFAULTS = Settings()
@@ -49,7 +50,7 @@ def _clean(name: str, value: Any) -> Any:
         allowed = MODES if name == "mode" else UIS
         text = value.strip().lower() if isinstance(value, str) else None
         return text if text in allowed else default
-    if name == "prefetch":
+    if name in ("prefetch", "ai_self_review"):
         return value if isinstance(value, bool) else default
     if name == "ai_timeout":
         ok = (isinstance(value, (int, float)) and not isinstance(value, bool)

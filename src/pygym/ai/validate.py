@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .. import grader, sandbox
 from .._runner import ALLOWED_IMPORTS, import_permitted
 from ..models import Exercise
-from . import levels
+from . import ethics, levels
 from .targets import ALIASES, TargetInfo
 
 MIN_TESTS = 3
@@ -52,19 +52,88 @@ def _text(d: dict, key: str) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _odd_quotes(line: str) -> bool:
+    """Does the line leave a ' or " string open? (escaped quotes and the other quote kind
+    inside a string are handled; triple quotes are not: the caller skips such code)."""
+    quote, i = "", 0
+    while i < len(line):
+        c = line[i]
+        if c == "\\":
+            i += 2
+            continue
+        if quote:
+            if c == quote:
+                quote = ""
+        elif c in "'\"":
+            quote = c
+        elif c == "#":
+            break
+        i += 1
+    return bool(quote)
+
+
+def _join_broken_strings(code: str) -> str:
+    """'x = "a\n"' written by the model as a real line break inside the quotes (it meant the
+    two characters \\n, but wrote one newline in the JSON) -> the line joined again with \\n."""
+    if "'''" in code or '"""' in code:
+        return code
+    lines, out = code.split("\n"), []
+    while lines:
+        line = lines.pop(0)
+        while _odd_quotes(line) and lines:
+            line = line + "\\n" + lines.pop(0)
+        out.append(line)
+    return "\n".join(out)
+
+
 def _parse_reference(code: str) -> Tuple[str, ast.Module]:
-    """Parse the reference; fix the common 'import x; def f(...)' one-liner on the way."""
+    """Parse the reference; fix two common slips on the way: the 'import x; def f(...)'
+    one-liner, and a line break inside a string literal."""
     try:
         return code, ast.parse(code)
     except SyntaxError as first:
         fixed = re.sub(r";\s*(def |import |from )", r"\n\1", code)
-        if fixed != code:
-            try:
-                return fixed, ast.parse(fixed)
-            except SyntaxError:
-                pass
+        for attempt in (fixed, _join_broken_strings(fixed)):
+            if attempt != code:
+                try:
+                    return attempt, ast.parse(attempt)
+                except SyntaxError:
+                    pass
         raise InvalidExercise(f"reference_solution has a syntax error ({first.msg}, "
                               f"line {first.lineno})")
+
+
+# Names small models use without importing them, from modules every exercise may import
+# (_runner.ALLOWED_IMPORTS): `defaultdict(int)` without `from collections import defaultdict`.
+_FROM_IMPORTS = {
+    "defaultdict": "collections", "Counter": "collections", "deque": "collections",
+    "OrderedDict": "collections", "namedtuple": "collections", "reduce": "functools",
+    "itemgetter": "operator", "attrgetter": "operator",
+}
+
+
+def _add_allowed_imports(code: str, tree: ast.Module) -> str:
+    """Add the missing import for an allowed module used as `collections.Counter(...)` or for
+    a well-known name from one (`Counter(...)`), when the code neither imports nor defines it."""
+    bound = set(_imports(tree))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            bound |= {(a.asname or a.name).split(".")[0] for a in node.names}
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+            if not isinstance(node, ast.ClassDef):
+                a = node.args
+                bound |= {x.arg for x in a.posonlyargs + a.args + a.kwonlyargs}
+                bound |= {x.arg for x in (a.vararg, a.kwarg) if x}
+        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            bound.add(node.id)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+    used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    missing = sorted(used - bound)
+    lines = [f"import {m}" for m in missing if m in ALLOWED_IMPORTS]
+    lines += [f"from {_FROM_IMPORTS[m]} import {m}" for m in missing if m in _FROM_IMPORTS]
+    return "\n".join(lines + [code]) if lines else code
 
 
 def _top_function(tree: ast.Module, name: str) -> Optional[ast.FunctionDef]:
@@ -270,12 +339,17 @@ def to_exercise(raw: str, info: TargetInfo, level: int, generator: str, *,
     if len(question) > MAX_QUESTION or len(reference) > MAX_REFERENCE:
         raise InvalidExercise("the question or the reference solution is too long")
     tests = tests[:MAX_TESTS]
+    # the plainest content slips (a deny word, a real-looking email); see ethics.py
+    content = ethics.problem(question) or ethics.problem(_text(data, "hint"))
+    if content:
+        raise InvalidExercise(content)
     files, fixtures = _fixtures(data)
 
     # 4 (first, so step 3 can use the parsed code). The reference.
     reference, tree = _parse_reference(reference)
     reference = _strip_type_hints(reference, tree)
     reference = _add_missing_import(reference, ast.parse(reference), info)
+    reference = _add_allowed_imports(reference, ast.parse(reference))
     tree = ast.parse(reference)
 
     # 3. function name and signature

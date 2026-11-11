@@ -71,8 +71,8 @@ def user_text(call):
 
 
 def situation(call):
-    return next(line for line in user_text(call).splitlines()
-                if line.startswith("Real-world situation: "))[len("Real-world situation: "):]
+    """The use case between the <situation> tags of the exercise prompt."""
+    return user_text(call).split("<situation>\n")[1].split("\n</situation>")[0]
 
 
 # ----- the request ------------------------------------------------------------------------------
@@ -194,7 +194,7 @@ def test_failure_writes_without_a_story_and_asks_again_next_time(use, bad):
     fake = use(bad, exercise())
     ex = ai.generate_exercise("zip", 1)
     assert ex.function_name == "pair_up"
-    assert situation(fake.calls[1]) == prompt.NO_USE_CASE.format(target="zip") + "."
+    assert situation(fake.calls[1]) == prompt.NO_USE_CASE.format(target="zip")
     assert not usecases.path("zip").exists()
     fake = use(ideas(ZIP_CASES), exercise("as_dict", "return dict(zip(names, scores))"))
     ai.generate_exercise("zip", 1)
@@ -229,10 +229,11 @@ def test_the_prompt_has_the_use_case_and_the_no_hidden_rules_rule(target):
         lowered = text.lower()
         assert not [s for s in OLD_SCENARIOS if s in lowered]
         assert "Story idea" not in text and "Focus:" not in text
-        assert "No hidden rules" in text and "states EVERY rule" in text
-        assert f"natural tool, so the student learns" in text
+        assert "State every rule the code uses" in text
+        assert "A student who reads only question_text must be able to pass every test" in text
+        assert f"`{target}` must be the natural tool for it" in text
         if use_case:
-            assert f"Real-world situation: {case}." in text
+            assert f"<situation>\n{case}\n</situation>" in text
         else:
             assert f"a realistic everyday task where `{target}` is the natural tool" in text
 

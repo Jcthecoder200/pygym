@@ -69,7 +69,7 @@ class Model:
         with self.lock:
             text = messages[1]["content"]
             self.calls.append(next(w for w in ("beginner", "intermediate", "advanced")
-                                   if f"Level: {w}" in text))
+                                   if f"Write one {w} exercise" in text))
             n = len(self.calls)
             failing = self.failures > 0
             self.failures -= failing

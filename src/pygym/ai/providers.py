@@ -69,8 +69,17 @@ class OllamaProvider(Provider):
     "think": false to models whose /api/show capabilities include "thinking". Other models get
     no "think" field at all (Ollama 0.18 accepts false for them too, but an older server may
     not). If the server still answers HTTP 400 about "think", the call is repeated once without
-    it and the model is remembered as non-thinking."""
+    it and the model is remembered as non-thinking.
+
+    Every request sets the context size (options.num_ctx = NUM_CTX). Ollama 0.18.1 loads
+    qwen2.5:1.5b with a 4096-token context by default (/api/ps "context_length") and cuts a
+    longer prompt from the START without an error, which would drop the system message and
+    the rules. The exercise prompt with its examples is about 1,600-2,600 tokens (measured
+    with qwen2.5:1.5b), up to about 3,200 with a repair, plus up to engine.MAX_TOKENS for the
+    answer: close to 4096, so 8192 leaves room. The same
+    value goes with every call, so Ollama does not reload the model between calls."""
     name = "ollama"
+    NUM_CTX = 8192
 
     def __init__(self, model: str, base_url: str = "http://localhost:11434"):
         self.model = model
@@ -112,7 +121,8 @@ class OllamaProvider(Provider):
         return True, f"Ollama is ready with {self.model}"
 
     def chat(self, messages, schema, *, temperature, max_tokens, seed, timeout) -> str:
-        options = {"num_predict": max_tokens, "temperature": temperature}
+        options = {"num_predict": max_tokens, "temperature": temperature,
+                   "num_ctx": self.NUM_CTX}
         if seed is not None:
             options["seed"] = seed
         body = {"model": self.model, "stream": False, "format": schema, "options": options,

@@ -73,7 +73,7 @@ def test_success_first_try(use):
     call = fake.calls[0]
     assert call["schema"] == SCHEMA
     assert "`zip`" in user_text(call) and "intermediate" in user_text(call)
-    assert call["temperature"] == pytest.approx(0.8) and call["max_tokens"] == 700
+    assert call["temperature"] == pytest.approx(0.8) and call["max_tokens"] == engine.MAX_TOKENS == 900
     assert call["timeout"] <= engine.DEFAULT_TIMEOUT    # the 60 s default budget
 
 
@@ -196,7 +196,9 @@ def test_avoid_ids_reject_repeats_and_are_named_in_the_prompt(use):
     second = ai.generate_exercise("zip", 1, avoid_ids={first.id})
     assert second.id != first.id and second.function_name == "as_dict"
     assert len(fake.calls) == 2
-    assert "Do not repeat" in user_text(fake.calls[0]) and "pair_up" in user_text(fake.calls[0])
+    text = user_text(fake.calls[0])
+    earlier = text.split("<earlier_exercises>\n")[1].split("</earlier_exercises>")[0]
+    assert "write something different from these" in text and "pair_up" in earlier
 
 
 def test_cached_exercise_is_not_returned_as_new(use):
@@ -211,8 +213,7 @@ def test_situations_vary_between_calls(use):
     fake = use(GOOD, OTHER, reply("third", "return [list(p) for p in zip(names, scores)]"))
     for _ in range(3):
         ai.generate_exercise("zip", 1, avoid_ids=set())
-    stories = [next(line for line in user_text(c).splitlines()
-                    if line.startswith("Real-world situation"))
+    stories = [user_text(c).split("<situation>\n")[1].split("\n</situation>")[0]
                for c in fake.calls]
     assert len(set(stories)) == 3
     assert len({c["seed"] for c in fake.calls}) == 3
