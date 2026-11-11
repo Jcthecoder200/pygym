@@ -6,22 +6,25 @@ BECOME the expected outputs. This proves the reference runs and calls the target
 prove the reference matches the question text (that is why every generated exercise carries
 ai.WARNING).
 
-LLM-written code is never executed in this process: only ast.parse() is used here.
+LLM-written code is never executed in this process: only ast.parse() is used here. It runs in
+pygym.sandbox (a new temporary folder, the audit hook and, where available, an OS sandbox); a
+reference that tries something the sandbox blocks is rejected with the reason.
 """
 from __future__ import annotations
 
 import ast
 import builtins
 import hashlib
+import importlib.util
 import json
 import keyword
 import re
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from .. import grader
-from .._runner import ALLOWED_IMPORTS
+from .. import grader, sandbox
+from .._runner import ALLOWED_IMPORTS, import_permitted
 from ..models import Exercise
-from .targets import TargetInfo
+from .targets import ALIASES, TargetInfo
 
 MIN_TESTS = 3
 MAX_TESTS = 8
@@ -109,12 +112,41 @@ def _strip_type_hints(code: str, tree: ast.Module) -> str:
 
 
 def _add_missing_import(code: str, tree: ast.Module, info: TargetInfo) -> str:
-    """'statistics.median(x)' without 'import statistics' -> add the import line."""
-    if info.kind != "module" or info.owner in _imports(tree):
+    """'statistics.median(x)' without 'import statistics' -> add the import line
+    ('np.cumsum(x)' without an import -> 'import numpy as np')."""
+    if info.kind != "module" or info.package in _imports(tree):
         return code
-    uses_module = any(isinstance(n, ast.Name) and n.id == info.owner.split(".")[0]
-                      for n in ast.walk(tree))
-    return f"import {info.owner}\n{code}" if uses_module else code
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    if info.package in names:
+        return f"import {info.owner}\n{code}"
+    alias = ALIASES.get(info.package)
+    if alias and alias in names:
+        return f"import {info.package} as {alias}\n{code}"
+    return code
+
+
+def _installed(module: str) -> bool:
+    try:
+        return importlib.util.find_spec(module) is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _fixtures(data: dict) -> Tuple[Dict[str, str], Dict[str, Any]]:
+    """The optional "files" and "http_fixtures" fields, checked. A list of
+    {"path": ..., "status": ..., "json": ...} items is accepted for http_fixtures too."""
+    files = data.get("files") or {}
+    fixtures = data.get("http_fixtures") or {}
+    if isinstance(fixtures, list):
+        as_dict = {}
+        for item in fixtures:
+            if isinstance(item, dict) and isinstance(item.get("path"), str):
+                as_dict[item["path"]] = {k: v for k, v in item.items() if k != "path"}
+        fixtures = as_dict
+    problems = sandbox.check_files(files) + sandbox.check_fixtures(fixtures)
+    if problems:
+        raise InvalidExercise(problems[0])
+    return files, fixtures
 
 
 def _returns_value(fn: ast.FunctionDef) -> bool:
@@ -206,6 +238,7 @@ def to_exercise(raw: str, info: TargetInfo, level: int, generator: str, *,
     if len(question) > MAX_QUESTION or len(reference) > MAX_REFERENCE:
         raise InvalidExercise("the question or the reference solution is too long")
     tests = tests[:MAX_TESTS]
+    files, fixtures = _fixtures(data)
 
     # 4 (first, so step 3 can use the parsed code). The reference.
     reference, tree = _parse_reference(reference)
@@ -232,17 +265,30 @@ def to_exercise(raw: str, info: TargetInfo, level: int, generator: str, *,
 
     if not grader._uses_target(tree, info.name):
         raise InvalidExercise(f"reference_solution must call {info.call_form}")
+    # Besides the defaults and the target's library, the reference may import any other library
+    # the import policy allows (not a denied or file/network one); the student may then too.
     allowed = ALLOWED_IMPORTS | set(info.allowed_imports)
-    bad = sorted({m for m in _imports(tree) if m not in allowed})
+    extra = sorted({m for m in _imports(tree) if m not in allowed
+                    and import_permitted(m, info.name) and _installed(m)})
+    bad = sorted({m for m in _imports(tree) if m not in allowed and m not in extra})
     if bad:
         raise InvalidExercise(f"import of {', '.join(bad)} is not allowed "
                               f"(allowed: {', '.join(sorted(allowed))})")
-    used = sorted({n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} & FORBIDDEN_NAMES)
+    allowed_imports = list(info.allowed_imports) + extra
+    forbidden = FORBIDDEN_NAMES - ({"open"} if files else set())
+    used = sorted({n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} & forbidden)
+    if used == ["open"] and info.needs_files:
+        raise InvalidExercise("reference_solution uses open() but \"files\" is empty: list "
+                              "every file the code reads in \"files\" ({\"name.txt\": \"text\"})")
     if used:
         raise InvalidExercise(f"reference_solution must not use {', '.join(used)}; "
                               "return the result instead")
     if not _returns_value(fn):
         raise InvalidExercise(f"'{name}' must return a value")
+    if any(isinstance(n, ast.Name) and n.id == "BASE_URL" and isinstance(n.ctx, ast.Store)
+           for n in ast.walk(tree)):
+        raise InvalidExercise("do not assign BASE_URL: it already holds the test server's "
+                              "address, use it as it is")
 
     # 5. tests -> positional argument lists
     pos, required, varargs = _params(fn)
@@ -264,7 +310,12 @@ def to_exercise(raw: str, info: TargetInfo, level: int, generator: str, *,
 
     # 6. run the reference in the sandbox; its return values become the expected outputs
     res = grader.run_in_sandbox(reference, name, info.name, inputs, sandbox_timeout,
-                                allowed_imports=info.allowed_imports)
+                                allowed_imports=allowed_imports, files=files,
+                                http_fixtures=fixtures)
+    if res.get("blocked"):
+        raise InvalidExercise(f"the reference solution tried something pygym does not allow "
+                              f"({res['blocked'][0]}); use only the current folder"
+                              + (" and BASE_URL" if fixtures or info.needs_http else ""))
     if res.get("status") == "timeout":
         raise InvalidExercise("the reference solution ran too long (infinite loop?)")
     if res.get("status") != "ok":
@@ -274,7 +325,7 @@ def to_exercise(raw: str, info: TargetInfo, level: int, generator: str, *,
         raise InvalidExercise(f"the reference solution crashed on the tests: "
                               f"{_first_error(res['outputs'])}")
     # 7. the target is really called (-1: methods of built-in types can't be counted)
-    if res.get("target_calls") == 0:
+    if not grader.target_called(res.get("target_calls"), tree, info.name):
         raise InvalidExercise(f"reference_solution must really call {info.call_form}, "
                               "not just mention it")
 
@@ -294,12 +345,18 @@ def to_exercise(raw: str, info: TargetInfo, level: int, generator: str, *,
     hint = _text(data, "hint") or f"Use {info.call_form}."
     if not re.search(rf"\b{re.escape(info.short)}\b", question):
         question = f"{question.rstrip()}\nUse `{info.name}`."
+    if fixtures and "BASE_URL" not in question:
+        question = (f"{question.rstrip()}\nThe test server's address is in the variable "
+                    "`BASE_URL` (a string like \"http://127.0.0.1:8000\").")
+    missing = [f for f in files if f not in question]
+    if missing:
+        question = f"{question.rstrip()}\nFiles in the current folder: {', '.join(sorted(files))}."
     ex = Exercise(
         id=make_id(info, level, reference, test_inputs), target_function=info.name,
         difficulty=level, question_text=question, function_name=name,
         function_signature=signature, reference_solution=reference, test_inputs=test_inputs,
-        expected_outputs=expected, hint=hint, allowed_imports=info.allowed_imports,
-        source="ai", generator=generator)
+        expected_outputs=expected, hint=hint, allowed_imports=allowed_imports,
+        source="ai", generator=generator, files=files, http_fixtures=fixtures)
     problems = grader.check_exercise(ex)
     if problems:
         raise InvalidExercise(problems[0])

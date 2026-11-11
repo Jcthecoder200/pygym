@@ -221,7 +221,9 @@ def test_help_through_handle_and_the_cli_title():
     assert "Documentation: statistics.median" in plain(style.response(resp, s))
 
 
-def test_help_for_a_not_allowed_or_unknown_dotted_target():
+def test_help_for_a_not_allowed_or_unknown_dotted_target(monkeypatch):
+    # os is only allowed with an OS sandbox; without one (Windows) it is refused.
+    monkeypatch.setenv("PYGYM_SANDBOX", "audit-hook")
     assert session_for("os.listdir").help() == "No documentation available for 'os.listdir'."
     assert session_for("statistics.nope").help() == "No documentation available for 'statistics.nope'."
 

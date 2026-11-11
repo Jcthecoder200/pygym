@@ -146,6 +146,7 @@ def test_deadline_is_respected(use, monkeypatch):
 
 
 def test_unknown_target_and_kill_switch(use, monkeypatch):
+    monkeypatch.setenv("PYGYM_SANDBOX", "audit-hook")  # os needs an OS sandbox (see test_sandbox)
     fake = use(GOOD)
     with pytest.raises(ai.GenerationUnavailable, match="'os' is not allowed"):
         ai.generate_exercise("os.system", 1)

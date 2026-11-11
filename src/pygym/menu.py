@@ -29,7 +29,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from . import __version__, ai, config, loader, style, ui
+from . import __version__, ai, config, loader, sandbox, style, ui
+from ._runner import denied_reason
 from .loader import ExerciseUnavailable
 from .session import Session
 
@@ -44,9 +45,9 @@ LIBRARIES: Tuple[str, ...] = (
 # Built-in types whose methods are listed like a library: "str.join".
 TYPE_LIBRARIES = {"str": str, "list": list, "dict": dict, "set": set, "tuple": tuple,
                   "int": int, "float": float, "bytes": bytes}
-# Importing these does something (opens a browser, prints a poem, starts a program): never import.
-_NO_IMPORT = frozenset({"antigravity", "this", "__main__", "__hello__", "__phello__",
-                        "turtledemo", "idlelib"})
+# Libraries that are never imported or offered (GUI toolkits, things that open a browser or start
+# programs, pygym itself, ...) are in one list shared with the AI engine and the sandbox:
+# _runner.DENIED_MODULES, checked through sandbox.refusal().
 # Built-ins that make no sense as an exercise (they read input, print, run code, ...).
 _NOT_EXERCISES = frozenset({
     "exit", "quit", "help", "copyright", "credits", "license", "input", "open", "exec", "eval",
@@ -110,6 +111,13 @@ def _is_exception_class(obj) -> bool:
     return isinstance(obj, type) and issubclass(obj, BaseException)
 
 
+def _installed(top: str) -> bool:
+    try:
+        return importlib.util.find_spec(top) is not None
+    except Exception:
+        return False
+
+
 def load_library(name: str):
     """The module (or built-in type) behind a library name. Raises LibraryError."""
     name = (name or "").strip()
@@ -119,13 +127,17 @@ def load_library(name: str):
         return TYPE_LIBRARIES[name]
     if not name or not all(part.isidentifier() for part in name.split(".")):
         raise LibraryError(f"'{name}' is not a library name.")
-    if name.split(".")[0] in _NO_IMPORT:
-        raise LibraryError(f"'{name}' is not a library pygym can use.")
+    what, why = sandbox.refusal(name)
+    if what:
+        raise LibraryError(f"'{name}' is not a library pygym can use: {why}.")
     try:
         spec = importlib.util.find_spec(name)
     except Exception:  # find_spec imports the parent package and may raise
         spec = None
     if spec is None:
+        hint = sandbox.install_hint(name)
+        if hint and not _installed(name.split(".")[0]):
+            raise LibraryError(f"{hint} (pygym never installs anything itself.)")
         raise LibraryError(f"No library called '{name}'.")
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -149,8 +161,8 @@ def functions_of(library: str) -> List[str]:
     names = exported if isinstance(exported, (list, tuple)) else dir(obj)
     result = []
     for n in names:
-        if not isinstance(n, str) or n.startswith("_"):
-            continue
+        if not isinstance(n, str) or n.startswith("_") or denied_reason(f"{library}.{n}"):
+            continue                     # e.g. os.system: never an exercise
         value = getattr(obj, n, None)
         if callable(value) and not _is_exception_class(value):
             result.append(n)
@@ -161,8 +173,12 @@ def _close(word: str, names: Sequence[str], n: int = 3) -> List[str]:
     return difflib.get_close_matches(word, list(names), n=n, cutoff=0.6)
 
 
-def _library_suggestions(name: str) -> List[str]:
-    pool = set(LIBRARIES) | set(getattr(sys, "stdlib_module_names", ()))
+def _library_suggestions(name: str, error: Optional[Exception] = None) -> List[str]:
+    """Close library names, only for "No library called ..." (not after a refusal or a pip hint)."""
+    if error is not None and "No library called" not in str(error):
+        return []
+    pool = {n for n in set(LIBRARIES) | set(getattr(sys, "stdlib_module_names", ()))
+            if not n.startswith("_") and not sandbox.refusal(n, "bwrap")[0]}
     return _close(name, sorted(pool))
 
 
@@ -182,7 +198,7 @@ def check_target(text: str) -> Tuple[Optional[str], str, List[str]]:
     try:
         names = functions_of(library)
     except LibraryError as e:
-        return None, str(e), _library_suggestions(library)
+        return None, str(e), _library_suggestions(library, e)
     if func in names:
         return t, "", []
     return None, f"No function '{func}' in {library}.", [f"{library}.{n}" for n in _close(func, names)]
@@ -200,6 +216,20 @@ def _mode_cell(mode: str) -> Text:
     return Text.assemble(("● preset" if mode == "preset" else "○ preset", on if mode == "preset" else off),
                          "   ",
                          ("● AI" if mode == "ai" else "○ AI", on if mode == "ai" else off))
+
+
+def _sandbox_level() -> str:
+    try:
+        return sandbox.level()
+    except Exception:  # detection must never break the menu
+        return "audit-hook"
+
+
+def _sandbox_cell() -> Text:
+    """'bubblewrap' (green) / 'basic (Python audit hook only)' (yellow)."""
+    lv = _sandbox_level()
+    good = lv != "audit-hook"
+    return Text(sandbox.label(lv), style=style.PALETTE["pass"] if good else style.PALETTE["refused"])
 
 
 def home_panel(settings: config.Settings, ai_ready: bool) -> RenderableType:
@@ -221,6 +251,7 @@ def home_panel(settings: config.Settings, ai_ready: bool) -> RenderableType:
     grid.add_row("Level", Text.assemble((style.dots(settings.level), style.PALETTE["dots"]),
                                         f" {level_name}"), "l  change level")
     grid.add_row("Window", Text(settings.ui), "u  change window")
+    grid.add_row("Sandbox", _sandbox_cell(), "")
     body = Group(Text("Practice one Python function at a time."), Text(""), grid)
     panel = Panel(body, title="[bold]pygym[/]", subtitle=f"v{__version__}", border_style=brand,
                   padding=(1, 2))
@@ -462,9 +493,9 @@ def _enter_library(console: Console, raw: str):
             library, _, _func = target.rpartition(".")
             return (library or "builtins", target)
         message = str(first_error)
-        if "." not in name:
+        if "." not in name and "No library called" in message:
             message += " Type a library name such as builtins, math or statistics."
-        _say(console, message, _library_suggestions(name))
+        _say(console, message, _library_suggestions(name, first_error))
         return None
 
 
@@ -666,7 +697,7 @@ def _print_list(console: Console, library: str) -> int:
     try:
         names = functions_of(name)
     except LibraryError as e:
-        _say(console, str(e), _library_suggestions(name))
+        _say(console, str(e), _library_suggestions(name, e))
         return 1
     console.print(functions_panel(name, preset_levels(), names, limit=None))
     return 0
@@ -685,6 +716,7 @@ def _print_status(console: Console, settings: config.Settings) -> None:
     table.add_row("address", settings.base_url)
     table.add_row("AI", Text("ready", style=style.PALETTE["pass"]) if ready
                   else Text("not reachable (AI mode falls back to preset)", style=style.PALETTE["fail"]))
+    table.add_row("sandbox", _sandbox_cell())
     console.print(table)
 
 

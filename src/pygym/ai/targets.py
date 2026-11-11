@@ -3,23 +3,31 @@
 Three kinds of target:
   builtin  "zip", "divmod"                     getattr(builtins, name)
   method   "str.join", "list.sort"             a method of one of METHOD_OWNERS
-  module   "statistics.median", "math.gcd"     a function or class in one of SAFE_MODULES
+  module   "statistics.median", "numpy.cumsum" a function or class of an installed library
 
-Only these are allowed. Modules that touch files, processes, the network or the interpreter
-(os, sys, subprocess, pathlib, ...) are not, and neither are random/time (their results change
-between runs, so expected outputs could not be computed once).
+Any installed library that imports inside the sandbox works, except (pygym.sandbox.refusal):
+  * the deny list in _runner.DENIED_MODULES: GUI toolkits, things that start programs or
+    control Python itself (subprocess, ctypes, sys, ...), random/time (results change between
+    runs), pip and pygym itself; and os functions that start or stop programs;
+  * libraries about files or the network (os, pathlib, shutil, requests, urllib, ...) when this
+    computer has no operating-system sandbox (only the audit hook, e.g. on Windows).
 """
 from __future__ import annotations
 
 import builtins
+import contextlib
 import difflib
 import importlib
+import importlib.util
 import inspect
+import io
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, FrozenSet, List, Optional, Sequence
 
-from .._runner import METHOD_OWNER_NAMES, REMOVED_BUILTINS, SAFE_MODULES
+from .. import sandbox
+from .._runner import (FILE_MODULES, METHOD_OWNER_NAMES, NETWORK_MODULES, REMOVED_BUILTINS,
+                       SAFE_MODULES)
 
 __all__ = ["SAFE_MODULES", "METHOD_OWNERS", "EXCLUDED_BUILTINS", "TargetInfo", "UnknownTarget",
            "resolve", "libraries", "functions", "suggest"]
@@ -34,6 +42,12 @@ EXCLUDED_BUILTINS: FrozenSet[str] = frozenset(REMOVED_BUILTINS) | frozenset({
     "aiter", "anext", "copyright", "credits", "license",
 })
 DOC_LIMIT = 600
+# Usual short names, accepted in reference solutions ("np.cumsum" without an import gets one).
+ALIASES = {"numpy": "np", "pandas": "pd", "polars": "pl", "networkx": "nx", "sympy": "sp",
+           "scipy": "sp", "seaborn": "sns", "statsmodels": "sm"}
+# Target names that suggest the function reads or writes files (pandas.read_csv, numpy.loadtxt).
+_FILE_WORDS = ("read", "load", "open", "file", "save", "write", "path", "dir", "glob", "walk",
+               "exists", "stat", "csv")
 
 
 @dataclass(frozen=True)
@@ -46,8 +60,26 @@ class TargetInfo:
     doc: str         # cleaned docstring, <= 600 chars, may be ""
 
     @property
+    def package(self) -> str:
+        """The top-level package to import: "numpy" for "numpy.linalg.norm", "" if none."""
+        return self.owner.split(".")[0] if self.kind == "module" else ""
+
+    @property
     def allowed_imports(self) -> List[str]:
-        return [self.owner] if self.kind == "module" else []
+        return [self.package] if self.kind == "module" else []
+
+    @property
+    def needs_http(self) -> bool:
+        """A network library: the exercise needs http_fixtures and BASE_URL."""
+        return self.package in NETWORK_MODULES
+
+    @property
+    def needs_files(self) -> bool:
+        """A file library or a function that reads/writes files: the exercise may need files."""
+        if self.kind != "module":
+            return False
+        return (self.package in FILE_MODULES or self.package in ("csv", "fileinput", "io")
+                or any(w in self.short.lower() for w in _FILE_WORDS))
 
     @property
     def call_form(self) -> str:
@@ -57,7 +89,11 @@ class TargetInfo:
         if self.kind == "method":
             return (f"the `.{self.short}()` method of a {self.owner} value, "
                     f"e.g. `x.{self.short}(...)`")
-        return f"`{self.name}(...)` after `import {self.owner}`"
+        alias = ALIASES.get(self.package)
+        if alias and self.owner == self.package:
+            return (f"`{self.name}(...)` after `import {self.package}` "
+                    f"(or `{alias}.{self.short}(...)` after `import {self.package} as {alias}`)")
+        return f"`{self.name}(...)` after `import {self.package}`"
 
 
 class UnknownTarget(ValueError):
@@ -104,7 +140,15 @@ def _signature(obj, short: str) -> str:
 
 @lru_cache(maxsize=None)
 def _module(name: str):
-    return importlib.import_module(name)
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return importlib.import_module(name)
+
+
+def _installed(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except Exception:  # noqa: BLE001  (find_spec imports the parent package and may raise)
+        return False
 
 
 def libraries() -> List[str]:
@@ -121,14 +165,22 @@ def _functions(library: str) -> tuple:
         owner = METHOD_OWNERS[library]
         return tuple(sorted(f"{library}.{n}" for n in dir(owner)
                             if _good_callable(n, getattr(owner, n))))
-    if library in SAFE_MODULES:
+    # Any other library that can be a target, except file/network libraries (only listed for
+    # suggestions; they still resolve when an OS sandbox is available).
+    usable = library in SAFE_MODULES or (
+        library.split(".")[0] not in sandbox.SYSTEM_MODULES
+        and not sandbox.refusal(library, "audit-hook")[0]
+        and all(p.isidentifier() for p in library.split(".")) and _installed(library))
+    if usable:
         try:
             mod = _module(library)
-        except ImportError:
+        except Exception:  # noqa: BLE001
+            return ()
+        if not inspect.ismodule(mod):
             return ()
         names = getattr(mod, "__all__", None) or dir(mod)
         return tuple(sorted(f"{library}.{n}" for n in set(names)
-                            if _good_callable(n, getattr(mod, n, None))))
+                            if isinstance(n, str) and _good_callable(n, getattr(mod, n, None))))
     return ()
 
 
@@ -191,16 +243,35 @@ def resolve(target: str) -> TargetInfo:
             raise UnknownTarget(f"'{owner}' has no method '{short}'", suggest(name))
         return TargetInfo(name, short, "method", owner, _signature(obj, short),
                           _squeeze(inspect.getdoc(obj)))
-    if owner in SAFE_MODULES:
-        try:
-            obj = getattr(_module(owner), short, None)
-        except ImportError:
-            obj = None
-        if obj is None or not _good_callable(short, obj):
-            raise UnknownTarget(f"'{owner}' has no function '{short}'", suggest(name))
-        return TargetInfo(name, short, "module", owner, _signature(obj, short),
-                          _squeeze(inspect.getdoc(obj)))
-    top = owner.split(".")[0]
     if hasattr(builtins, owner):
         raise UnknownTarget(f"methods of '{owner}' are not supported", suggest(name))
-    raise UnknownTarget(f"'{top}' is not allowed in pygym")
+    top = owner.split(".")[0]
+    what, why = sandbox.refusal(name)
+    if what:
+        raise UnknownTarget(f"'{what}' is not allowed in pygym ({why})")
+    if not all(p.isidentifier() for p in owner.split(".")):
+        raise UnknownTarget(f"'{owner}' is not a library name")
+    if not _installed(top):
+        raise UnknownTarget(sandbox.install_hint(top) or f"there is no library called '{top}'")
+    try:
+        mod = _module(owner)
+    except Exception:  # noqa: BLE001
+        mod = None
+    if mod is None or not inspect.ismodule(mod):
+        parent, _, cls = owner.rpartition(".")
+        try:
+            is_class = bool(parent) and isinstance(getattr(_module(parent), cls, None), type)
+        except Exception:  # noqa: BLE001
+            is_class = False
+        if is_class:
+            raise UnknownTarget(f"methods of '{owner}' are not supported; pick a function of "
+                                f"'{parent}' instead")
+        raise UnknownTarget(f"the library '{owner}' could not be imported")
+    obj = getattr(mod, short, None)
+    if obj is None or not _good_callable(short, obj):
+        raise UnknownTarget(f"'{owner}' has no function '{short}'", suggest(name, library=owner))
+    ok, problem = sandbox.importable(top)
+    if not ok:
+        raise UnknownTarget(f"'{top}' does not import inside the pygym sandbox ({problem})")
+    return TargetInfo(name, short, "module", owner, _signature(obj, short),
+                      _squeeze(inspect.getdoc(obj)))

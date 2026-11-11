@@ -11,7 +11,7 @@ from typing import Callable, Deque, Dict, Iterable, List, Optional, Tuple
 from .. import config
 from ..models import Exercise
 from . import cache
-from .prompt import FOCUS, SCENARIOS, SCHEMA, build_messages
+from .prompt import FOCUS, SCENARIOS, build_messages, schema_for
 from .providers import ProviderError, get_provider
 from .targets import TargetInfo, UnknownTarget, resolve
 from .validate import InvalidExercise, to_exercise
@@ -162,7 +162,7 @@ def _generate(info: TargetInfo, level: int, avoid: set, settings, timeout: float
                                   avoid=_avoid_lines(earlier, avoid), repair=repair)
         tries += 1
         try:
-            raw = provider.chat(messages, SCHEMA,
+            raw = provider.chat(messages, schema_for(info),
                                 temperature=min(BASE_TEMPERATURE + 0.1 * fresh_retries, 1.2),
                                 max_tokens=MAX_TOKENS, seed=rng.randrange(2 ** 31),
                                 timeout=max(time_left(), 0.1))

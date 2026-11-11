@@ -46,7 +46,9 @@ def test_call_form_names_the_target():
     ("frozenset.union", "not supported"),
     ("", "no function"),
 ])
-def test_unknown_or_unsafe(text, words):
+def test_unknown_or_unsafe(text, words, monkeypatch):
+    # os is only allowed with an OS sandbox; without one (Windows) it is refused.
+    monkeypatch.setenv("PYGYM_SANDBOX", "audit-hook")
     with pytest.raises(UnknownTarget) as e:
         resolve(text)
     assert words in str(e.value)
