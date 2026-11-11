@@ -41,7 +41,7 @@ venv/
 .ipynb_checkpoints/
 
 # Manim output (presentation team)
-media/
+/media/
 
 # Generated output of experiments/ scripts
 experiments/out/
