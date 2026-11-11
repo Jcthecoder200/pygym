@@ -72,8 +72,21 @@ modes.
    teaches which problems the function solves. The old "focus" list (data shapes such as
    "working with strings" or "a list of pairs") was removed too: it often fought the situation
    and the function's natural input. Variety now comes from the use cases, depth from the level.
+
+   The prompt (details and reasons: [PROMPT_DESIGN.md](PROMPT_DESIGN.md)) has a role and
+   audience (first-year students, plain English), content rules (everyday topics, names from
+   many cultures, no stereotypes, no sensitive topics, no real people, brands or personal
+   data), clear sections, the documentation and the use case between tags as data, the level
+   as a code shape to follow, the team's rules on imports, everyday problems and explaining
+   every part of the result, **1-2 complete example exercises of the same level** (never about
+   the requested function; `pygym/ai/examples.py`, including the hand-written exercises that
+   follow their level), and a short checklist at the end. A fresh try takes other examples.
 4. It checks the answer **before you see it**:
-   - the JSON has all fields, the reference solution parses and defines the function;
+   - the JSON has all fields, the reference solution parses and defines the function (a
+     line break inside a string literal and a missing import of `math`, `collections`... are
+     fixed on the way);
+   - the question and the hint pass a small content check (a short list of sensitive words,
+     real-looking email addresses; see [PROMPT_DESIGN.md](PROMPT_DESIGN.md#the-content-rules-ethics));
    - the reference really uses the target function and only allowed imports;
    - the reference **fits the level** (see [What each level means](#what-each-level-means)): a
      level-3 one-liner is rejected and the model is told what was missing;
@@ -84,8 +97,10 @@ modes.
    - the **expected results come from running the reference solution**, never from the model;
    - the results are not all the same, and they are the same when run a second time;
    - the reference passes the normal grader, like a student solution would.
-5. If a check fails, pygym tells the model what was wrong and asks again, until a reply passes or
-   the time budget is used (60 seconds by default, setting `ai_timeout`; at most 10 tries). A fresh try (not a repair) takes the next use case.
+5. If a check fails, pygym tells the model what was wrong, with one concrete way to fix it
+   ("add a for loop over the input list and an if inside it ..."), and asks again, until a
+   reply passes or the time budget is used (60 seconds by default, setting `ai_timeout`; at
+   most 10 tries). A fresh try (not a repair) takes the next use case and other examples.
 6. Good exercises are saved in `~/.pygym/generated/<function>.json`. When the model is slow,
    wrong or not running, pygym reuses a saved one you have not seen yet.
 7. If nothing works, pygym uses a preset exercise and tells you why (for example
@@ -205,6 +220,7 @@ Settings live in `~/.pygym/config.json` (or `$PYGYM_HOME/config.json`):
 | `base_url` | `"http://localhost:11434"` | where the server is |
 | `prefetch` | `true` | write the next AI exercise in the background while you work |
 | `ai_timeout` | `60` | seconds the AI may spend on one exercise (10-300); it keeps asking until a reply passes the checks or this time is used |
+| `ai_self_review` | `false` | send each reply back to the model once to review and fix before the checks (two calls per try; measured no better with qwen2.5:1.5b and twice as slow, see [PROMPT_DESIGN.md](PROMPT_DESIGN.md)) |
 
 Environment variables:
 
@@ -533,4 +549,23 @@ level rules on):
 Three times the tries did not help: the 1.5B model repeats the same mistake after it is
 told what was wrong. The minute matters for slower models and for prefetch (which hides it);
 it does not make this model write intermediate or advanced exercises.
+
+**9. The new prompt: examples per level** (2026-11-11, Ollama 0.18.1, qwen2.5:1.5b,
+`experiments/prompt_eval.py`, fresh `PYGYM_HOME` per cell with the same saved use cases, fixed
+seeds, 60 s budget but at most 2 tries per cell; 116 model calls in total). Full table, the
+judged exercises and the variants: [PROMPT_DESIGN.md](PROMPT_DESIGN.md#measured-2026-11-11).
+
+| Prompt | Level 1 | Level 2 | Level 3 | Prompt tokens | Mean time of a valid one |
+|---|---|---|---|---|---|
+| old (commit `dbf2287`, one beginner example) | 2/6 | 1/6 | 1/6 | 756–995 | 8.1 s |
+| new, first version | 4/6 | 0/6 | 0/6 | 1,599–2,435 | 12.6 s |
+| new, current (level shapes as code skeletons) | (4/6, text unchanged) | 2/6 | 1/6 | 1,982–2,591 | 15.3 s |
+
+So about 7 of 18 against 4 of 18: better, but small samples. The first new version copied the
+examples' topics at levels 2-3; the code skeletons and "not the topic of an example" at the end
+fixed part of that. A "plan" field first (0/12) and a self-review call (0/6, twice as slow)
+did not help and are off. **Most valid exercises are still weak** (hidden rules, odd tasks):
+of the 7 valid new ones, one is good (`statistics.median`: the middle price of a weekly sale,
+rounded to 2 decimals). Ollama's default context (4096 tokens) would be too small for the
+longest request with a repair, so pygym now sends `num_ctx: 8192`.
 

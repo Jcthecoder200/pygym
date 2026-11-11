@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 
 ## [Unreleased]
 ### Added
+- **A new exercise prompt with examples per level** (`pygym.ai.prompt`, new
+  `pygym.ai.examples`; design and measurements in `docs/PROMPT_DESIGN.md`). The prompt shows
+  1-2 complete example exercises **of the requested level** (bigger-task ones in bigger mode),
+  never about the requested function nor calling it, the first a written-for-the-prompt one
+  of the most similar kind; a fresh try takes others. The bank has 12 examples (4 beginner, 3
+  intermediate, 3 advanced, 2 bigger-task), plus the hand-written exercises that follow their
+  level's rule and have 4-6 tests (14 today); a test runs every example through the real
+  validator, so a broken one cannot ship. The prompt now has a role and audience, `##`
+  sections, the documentation, use case and earlier exercises between tags as data, the level
+  as things to do with a code skeleton, the team's rules (imports only when needed and then
+  named and explained in the question and hint; a logical everyday problem; every part of the
+  result explained), and a checklist at the end. Measured with qwen2.5:1.5b: about 7 of 18
+  valid against 4 of 18 for the old prompt (levels 2-3: 3 of 12 against 2 of 12), on small
+  samples; most valid exercises are still weak.
+- **Content rules (ethics)** in the system message (everyday topics, names from many cultures,
+  no stereotypes, no sensitive topics, no real people/brands/personal data, neutral units,
+  never "verified"), and a small check (`pygym.ai.ethics`): a short deny-word list and
+  real-looking email addresses in the question or hint are sent back for repair ("topic not
+  everyday or neutral"); such use cases are dropped. Not complete, by design.
+- **Repair messages with a concrete fix** per problem type (`prompt.FIXES`), plus a reminder of
+  the level and the target.
+- **`ai_self_review` setting** (default `false`): the model reviews its own reply once before
+  the checks. Measured no better and twice as slow with qwen2.5:1.5b.
+- `generate_exercise(..., seed=)` makes the use case, examples and sampling seeds repeatable
+  (tests, experiments); `experiments/prompt_eval.py` compares prompts with a real model under a
+  hard call budget.
+
+### Changed
+- Ollama requests set `options.num_ctx = 8192`: Ollama 0.18.1 loads qwen2.5:1.5b with 4096
+  tokens and silently cuts longer prompts from the start; the longest request (prompt with a
+  repair, plus the answer) needs about 4,100.
+- `engine.MAX_TOKENS` 700 → 900: 5 of 103 measured replies were cut off at 700.
+- The validator fixes two slips itself: a line break inside a string literal, and a missing
+  import of an always-allowed module (`math`, `collections` names such as `defaultdict`...).
 - **AI time budget of a minute, as a setting.** The AI may now spend up to 60 s on one
   exercise (was 20 s), with up to 10 tries instead of 4. `ai_timeout` in `config.json`
   (10-300 s) changes it; `pygym --status` shows it, and the progress bar fills against it.
