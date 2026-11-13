@@ -3,6 +3,34 @@
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+### Added
+- **34 more hand-written exercises** (83 in total): an intermediate and an advanced one for each
+  of the 17 built-ins (`reversed` and `abs` get levels 2-3 / 2-3 too). They all follow the level
+  rules (`validate_exercises.py --levels` lists none of them), have 5-6 tests, and use made-up data.
+  Mutation-tested: every behaviour-changing bug tried on their reference solutions (a flipped
+  `<`, a changed constant, `and` -> `or`, a dropped `reverse=True`) fails at least one test.
+  Because they follow the level rules they are also valid prompt examples: the example pool for
+  AI mode grew from 14 to 48 presets (level 2: 3 -> 20, level 3: 1 -> 18).
+- `tools/check_py39.py`: static check that the code and the exercise solutions still run on
+  Python 3.9 (stdlib only, runs on any Python).
+- `tools/real_machine_check.py` and `tools/notebook_check.ipynb`: self-reporting checks to run on
+  Windows, macOS, Python 3.9 and in a browser notebook.
+### Fixed
+- Windows editor: typing the letter "à" (or pasting text with it) made the editor wait for another
+  key and drop it, because `msvcrt.getwch()` returns the same "\xe0" for "à" and for the prefix
+  of every arrow key, and `kbhit()` cannot tell them apart (measured on Windows 11). The editor now
+  reads raw console events (`ReadConsoleInputW`), which keep the two apart, and falls back to
+  `msvcrt` if that is not possible. Ctrl+arrows, Alt chords, Shift+Tab and F-keys stay ignored.
+- Highlighted code was a white box with pale text in a dark notebook (Colab, JupyterLab dark):
+  Rich paints an explicit "default" background white when it exports HTML. Notebooks now use the
+  highlight theme's own background; terminals still use their own.
+- Google Colab was treated as "not a notebook" (its shell class is a subclass of
+  `ZMQInteractiveShell` with another name), so `exercise()` used the text front-end there.
+- macOS `sandbox-exec`: the profile now also allows starting the interpreter file itself. Apple's
+  Python 3.9 (Xcode Command Line Tools) runs from outside its prefix, so the self-test failed and
+  the sandbox silently fell back to the audit hook. Untested on a Mac.
+
 ## [0.2.0] - 2026-11-11
 ### Added
 - **`pygym` command with a Rich main menu** (also `python -m pygym`): library → function →

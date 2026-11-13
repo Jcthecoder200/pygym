@@ -12,7 +12,8 @@ from functools import lru_cache
 from typing import List, Optional, Sequence, Tuple
 
 from rich import box
-from rich.console import Console, Group, RenderableType
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
+from rich.measure import Measurement
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
@@ -91,9 +92,32 @@ def dots(difficulty: int) -> str:
     return DOT_FULL * n + DOT_EMPTY * (MAX_LEVEL - n)
 
 
-def code(source: str) -> Syntax:
-    """Python code, highlighted, on the terminal's own background."""
-    return Syntax(source, "python", theme=CODE_THEME, background_color="default")
+class _Code:
+    """Python code, highlighted. In a terminal it sits on the terminal's own background.
+
+    In a notebook Rich exports HTML, and there an explicit "default" background is painted with
+    Rich's LIGHT terminal theme: a white box with light text on a dark notebook (seen on Colab).
+    So a notebook gets the highlight theme's own (dark) background instead, which reads fine on
+    both light and dark pages. The choice is made per console, when the code is drawn.
+    """
+
+    def __init__(self, source: str) -> None:
+        self.source = source
+
+    def _syntax(self, console: Console) -> Syntax:
+        background = None if console.is_jupyter else "default"
+        return Syntax(self.source, "python", theme=CODE_THEME, background_color=background)
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        yield self._syntax(console)
+
+    def __rich_measure__(self, console: Console, options: ConsoleOptions) -> Measurement:
+        return Measurement.get(console, options, self._syntax(console))
+
+
+def code(source: str) -> _Code:
+    """Python code, highlighted (see _Code)."""
+    return _Code(source)
 
 
 AI_BADGE = " AI "  # marks a generated (unreviewed) exercise, next to the level
@@ -506,7 +530,7 @@ def wait_with_bar(job, console: Console, refresh: float = 0.1) -> bool:
 
 @lru_cache(maxsize=1)
 def _highlighter() -> Syntax:
-    return code("")
+    return Syntax("", "python", theme=CODE_THEME, background_color="default")  # only its lexer and theme are used
 
 
 @lru_cache(maxsize=16)

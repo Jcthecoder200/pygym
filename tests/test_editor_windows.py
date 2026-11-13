@@ -94,6 +94,7 @@ def run_windows(monkeypatch, batches, interrupt_at=None):
             return real_getwch()
         fake.getwch = getwch
     monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    monkeypatch.setattr(editor, "_windows_reader", lambda: editor._MsvcrtReader(fake))
     modes = []
     monkeypatch.setattr(editor, "_win_vt_mode",
                         lambda enable, restore=None: modes.append((enable, restore)) or 7)
@@ -122,7 +123,9 @@ def test_windows_ctrl_c_does_not_quit(monkeypatch):
 
 def test_windows_restores_console_after_crash(monkeypatch):
     import sys
-    monkeypatch.setitem(sys.modules, "msvcrt", FakeMsvcrt(["i"]))
+    fake = FakeMsvcrt(["i"])
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    monkeypatch.setattr(editor, "_windows_reader", lambda: editor._MsvcrtReader(fake))
     modes = []
     monkeypatch.setattr(editor, "_win_vt_mode",
                         lambda enable, restore=None: modes.append((enable, restore)) or 7)

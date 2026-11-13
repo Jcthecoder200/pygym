@@ -40,13 +40,22 @@ NO_SESSION = 'No active exercise. Run exercise("zip") first.'
 
 
 def in_notebook() -> bool:
-    """True inside a Jupyter notebook kernel (not the IPython terminal, not plain Python)."""
+    """True inside a Jupyter notebook kernel (not the IPython terminal, not plain Python).
+
+    Looks at the whole class hierarchy, not just the name: Google Colab's shell is
+    google.colab._shell.Shell, a SUBCLASS of ZMQInteractiveShell, so a plain name comparison
+    would send every Colab user to the text front-end (Rich's own notebook check has the same
+    special case)."""
     try:
         from IPython import get_ipython
     except Exception:
         return False
     ip = get_ipython()
-    return ip is not None and type(ip).__name__ == "ZMQInteractiveShell"
+    if ip is None:
+        return False
+    cls = type(ip)
+    return (any(c.__name__ == "ZMQInteractiveShell" for c in cls.__mro__)
+            or "google.colab" in str(cls))
 
 
 def _console() -> Console:

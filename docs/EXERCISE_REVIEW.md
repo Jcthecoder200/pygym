@@ -5,7 +5,7 @@ the author reads each row below, runs the exercise, and writes their name and th
 **Reviewer** column. Put `OK` in the last column when all eight checks are true, or write the
 problem there.
 
-Status: **all new exercises below are pending review.** They have been checked by machine only: the
+Status: **all new exercises below (both batches) are pending review.** They have been checked by machine only: the
 reference solution passes the grader, an obvious solution without the target is rejected, and typical
 wrong answers fail. No person has read them yet.
 
@@ -95,6 +95,54 @@ column), move it to another level, or rewrite the reference.
 | `isinstance-01` | `isinstance` | 1 | Count the strings in a mixed list. |  |  |
 | `isinstance-02` | `isinstance` | 2 | Count real ints; bool is a subclass of int, so exclude it. |  |  |
 | `isinstance-03` | `isinstance` | 3 | Sum numbers in nested lists; isinstance with a tuple of types and recursion. |  |  |
+
+## New exercises, second batch (34)
+
+Added to give each level-2 and level-3 slot more than one exercise, and to give AI mode more
+valid examples (`_from_preset` only accepts presets that follow their level rules and have 4 to 6
+tests; before this batch only 14 of 49 did). Written by hand, then checked by machine only:
+`validate_exercises.py` passes, `--levels` lists none of them, every `Example:` in a question
+text matches what the reference returns, the project's content rules (`ai/ethics.py`) find nothing,
+and a mutation test (flipped comparisons, changed constants, `and`/`or`, dropped `reverse=True`)
+found no behaviour-changing bug that the tests miss. No person has read them yet. Review them with
+the same eight checks, and look especially at check 8 (plain English) and at the level choice.
+
+| Id | Target | Level | What it asks | Reviewer | OK? |
+|---|---|---|---|---|---|
+| `zip-04` | `zip` | 2 | Names with a score of 50 or more as 'name: score'; stops at the shorter list. |  |  |
+| `zip-05` | `zip` | 3 | Total per name from two lists, biggest first, ties alphabetical (dict + sorted with key). |  |  |
+| `sum-04` | `sum` | 2 | Days until the running total of steps reaches a goal; -1 if never; goal <= 0 is 0 days. |  |  |
+| `sum-05` | `sum` | 3 | Teams whose total points reach a limit, sorted by name (dict of lists + sum). |  |  |
+| `sorted-04` | `sorted` | 2 | The n highest valid (non-negative) scores, biggest first. |  |  |
+| `sorted-05` | `sorted` | 3 | Names by grade high to low, same grade alphabetical (group in a dict, then sorted). |  |  |
+| `map-04` | `map` | 2 | Strip spaces with map(str.strip, ...), keep and convert whole-number strings. |  |  |
+| `map-05` | `map` | 3 | Words grouped by length (dict), lengths small to big; map(len, ...) for the lengths. |  |  |
+| `filter-04` | `filter` | 2 | Keep strings with exactly one '@' inside (example.com/.org/.net addresses); lower case. |  |  |
+| `filter-05` | `filter` | 3 | Numbers above a limit without repeats, first copy kept (filter + set). |  |  |
+| `enumerate-04` | `enumerate` | 2 | Positions where a reading differs from the one before it. |  |  |
+| `enumerate-05` | `enumerate` | 3 | Items that repeat, with the position of their last copy, sorted by that position. |  |  |
+| `len-04` | `len` | 2 | Line numbers (from 1) of lines longer than a width. |  |  |
+| `len-05` | `len` | 3 | Longest common prefix of a list of words (a while loop inside a for loop). |  |  |
+| `max-04` | `max` | 2 | Position of the hottest day, first one on a tie, -1 for no days. |  |  |
+| `max-05` | `max` | 3 | Best score per player, best first, ties alphabetical (dict + max + sorted with key). |  |  |
+| `min-04` | `min` | 2 | Name of the cheapest product in stock; price ties go alphabetical; '' if none. |  |  |
+| `min-05` | `min` | 3 | Smallest difference between any two numbers (nested loops); None for fewer than two. |  |  |
+| `range-04` | `range` | 2 | Leap years between two years, both included (the 100/400 rule). |  |  |
+| `range-05` | `range` | 3 | Primes up to n with a sieve (range with a step, nested loops). |  |  |
+| `any-04` | `any` | 2 | How many sentences contain a forbidden word, ignoring case. |  |  |
+| `any-05` | `any` | 3 | Is there a route between two cities over two-way roads (stack, set, dict). |  |  |
+| `all-04` | `all` | 2 | How many rows are strictly increasing; rows with fewer than two numbers count. |  |  |
+| `all-05` | `all` | 3 | Balanced brackets with a stack; any other character gives False. |  |  |
+| `reversed-03` | `reversed` | 2 | Words that are palindromes ignoring case; keep the original spelling. |  |  |
+| `reversed-04` | `reversed` | 3 | Days until a warmer day, walking the days backwards with a stack. |  |  |
+| `abs-03` | `abs` | 3 | Pair sum closest to a target; the first pair wins a tie (nested loops). |  |  |
+| `abs-04` | `abs` | 2 | How many day-to-day temperature changes are bigger than a limit. |  |  |
+| `divmod-04` | `divmod` | 2 | Seconds as '1h 2min 5s', leaving out zero parts; '0s' for 0. |  |  |
+| `divmod-05` | `divmod` | 3 | Greedy coin change; [] when money is left over (dict keeps coin order). |  |  |
+| `round-04` | `round` | 2 | Prices rounded to the nearest 10 with round(x, -1), at least 10. No test uses a half. |  |  |
+| `round-05` | `round` | 3 | Count numbers per rounded-to-10 bucket, ignoring negatives. No test uses a half. |  |  |
+| `isinstance-04` | `isinstance` | 2 | Count numbers, texts and others; True/False are not numbers. |  |  |
+| `isinstance-05` | `isinstance` | 3 | Different strings in a nested list (recursion), shortest first, ties alphabetical. |  |  |
 
 ## Older exercises (written before this review list)
 

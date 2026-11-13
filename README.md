@@ -93,9 +93,10 @@ Found while building 0.2.0; they must be solved before 1.0. Measurements are in
    that becomes "correct"). The checks prove the solution runs, not that the question makes
    sense. A bigger model fixes most of it (qwen3.5 9.7B: 4 of 4 sensible), but it needs about
    9 GB of memory and 20-40 s per exercise, too heavy for many student laptops. Not decided yet.
-2. **44 hand-written exercises have not been reviewed by a person**
-   ([docs/EXERCISE_REVIEW.md](docs/EXERCISE_REVIEW.md)), and 28 of the 49 do not follow the new
-   level rules (`python tools/validate_exercises.py --levels`).
+2. **78 hand-written exercises have not been reviewed by a person**
+   ([docs/EXERCISE_REVIEW.md](docs/EXERCISE_REVIEW.md)), and 28 of the 83 do not follow the new
+   level rules (`python tools/validate_exercises.py --levels`). The 28 are older ones; the 34
+   exercises added later all follow the rules, so they can also serve as prompt examples.
 3. **The tkinter window (the Windows default) is still the 0.0.0 version**: no results window,
    `:out`, `:level`, progress bar, AI badge or bigger-task question.
    [docs/FRONTEND_GUIDE.md](docs/FRONTEND_GUIDE.md) explains how to add them.

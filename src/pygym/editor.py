@@ -1129,6 +1129,10 @@ def translate_windows_keys(chars: List[str]) -> List[str]:
             keys.append("CTRL_" + chr(ord(ch) + 64))
         else:
             keys.append(ch)
+    return _mark_paste(keys)
+
+
+def _mark_paste(keys: List[str]) -> List[str]:
     printable = sum(1 for k in keys if len(k) == 1)
     if len(keys) >= PASTE_BURST and printable and "ENTER" in keys:
         return ["PASTE_START", *keys, "PASTE_END"]
@@ -1143,6 +1147,149 @@ def read_windows_keys(msvcrt) -> List[str]:
     if chars[-1] in ("\x00", "\xe0"):  # the code letter of a special key is always right behind
         chars.append(msvcrt.getwch())
     return translate_windows_keys(chars)
+
+
+# Raw console events (preferred over msvcrt). getwch() cannot tell the letter "à" (U+00E0) from the
+# "\xe0" it puts in front of every arrow key, and kbhit() does not see the second half of an arrow
+# key either (measured on Windows 11: kbhit() is False in both cases), so a typed "à" made the editor
+# wait for another key and swallow it. ReadConsoleInputW reports a virtual-key code for keys without
+# a character (arrows: character 0) and the character itself for text (à, é, 中: virtual key 0).
+
+_VK_KEYS = {0x21: "PAGEUP", 0x22: "PAGEDOWN", 0x23: "END", 0x24: "HOME", 0x25: "LEFT", 0x26: "UP",
+            0x27: "RIGHT", 0x28: "DOWN", 0x2E: "DELETE"}
+_VK_MENU = 0x12                   # the Alt key
+_CTRL_STATE = 0x0008 | 0x0004     # LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED
+_ALT_STATE = 0x0002 | 0x0001      # LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED
+_SHIFT_STATE = 0x0010
+
+
+def windows_events_to_keys(events) -> List[str]:
+    """Turn console key events into the editor's key names.
+
+    `events` are (key_down, virtual_key, character, control_key_state, repeat_count) tuples; the
+    character is "\x00" for a key without one. The same keys are ignored as with getwch(): F-keys,
+    Ctrl/Alt + arrow, Alt + letter, Shift+Tab. AltGr (Ctrl+Alt) still types its character.
+    """
+    keys: List[str] = []
+    high = ""  # first half of a UTF-16 surrogate pair (characters above U+FFFF arrive as two events)
+    for down, vk, ch, state, repeat in events:
+        ctrl, alt = bool(state & _CTRL_STATE), bool(state & _ALT_STATE)
+        if not down:
+            # Windows Terminal sends an Alt+numpad character as a key-down; the old console host
+            # sends it when Alt is released. Every other key-up is just the end of a key press.
+            if not (vk == _VK_MENU and ch not in ("", "\x00")):
+                continue
+        elif ch in ("", "\x00"):
+            name = _VK_KEYS.get(vk)
+            if name and not ctrl and not alt:
+                keys.extend([name] * max(1, repeat))
+            continue
+        elif alt and not ctrl and vk != 0:  # Alt+letter chord
+            continue
+        elif ch == "\t" and state & _SHIFT_STATE:  # Shift+Tab
+            continue
+        if "\ud800" <= ch <= "\udbff":
+            high = ch
+            continue
+        if "\udc00" <= ch <= "\udfff":
+            if not high:
+                continue  # half a pair
+            ch = (high + ch).encode("utf-16", "surrogatepass").decode("utf-16")
+        high = ""
+        name = _WIN_CONTROL.get(ch) or ("CTRL_" + chr(ord(ch) + 64) if ch < " " else ch)
+        keys.extend([name] * max(1, repeat))
+    return _mark_paste(keys)
+
+
+_INPUT_RECORD = []  # the ctypes type, built on first use (kept in a list: a tiny cache)
+
+
+def _input_record_type():
+    """INPUT_RECORD (20 bytes) with fixed-width fields, so the layout is the same everywhere."""
+    if not _INPUT_RECORD:
+        import ctypes
+
+        class KeyEvent(ctypes.Structure):
+            _fields_ = [("bKeyDown", ctypes.c_int32), ("wRepeatCount", ctypes.c_uint16),
+                        ("wVirtualKeyCode", ctypes.c_uint16), ("wVirtualScanCode", ctypes.c_uint16),
+                        ("uChar", ctypes.c_uint16), ("dwControlKeyState", ctypes.c_uint32)]
+
+        class Event(ctypes.Union):
+            _fields_ = [("Key", KeyEvent), ("pad", ctypes.c_byte * 16)]
+
+        class InputRecord(ctypes.Structure):
+            _fields_ = [("EventType", ctypes.c_uint16), ("Event", Event)]
+
+        _INPUT_RECORD.append(InputRecord)
+    return _INPUT_RECORD[0]
+
+
+class _MsvcrtReader:
+    """The fallback: msvcrt.getwch(). Cannot tell the letter "à" from an arrow key's prefix."""
+
+    def __init__(self, msvcrt) -> None:
+        self._msvcrt = msvcrt
+
+    def pending(self) -> bool:
+        return bool(self._msvcrt.kbhit())
+
+    def read(self) -> List[str]:
+        return read_windows_keys(self._msvcrt)
+
+
+class _ConsoleReader:
+    """Reads key events with ReadConsoleInputW. Never blocks: call read() only when pending().
+
+    `kernel32` can be given for tests. Raises when stdin is not a console (the caller then falls
+    back to _MsvcrtReader), and AttributeError off Windows.
+    """
+    BATCH = 256          # records per call
+    MAX_EVENTS = 8192    # one read() takes at most this many (a paste arrives as one big batch)
+
+    def __init__(self, kernel32=None) -> None:
+        import ctypes
+        self._ctypes = ctypes
+        if kernel32 is None:
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle_t, dword_p = ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)
+            kernel32.GetStdHandle.restype = handle_t
+            kernel32.GetConsoleMode.argtypes = [handle_t, dword_p]
+            kernel32.GetNumberOfConsoleInputEvents.argtypes = [handle_t, dword_p]
+            kernel32.ReadConsoleInputW.argtypes = [handle_t, ctypes.c_void_p, ctypes.c_uint32, dword_p]
+        self._k32 = kernel32
+        self._handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(self._handle, ctypes.byref(mode)):
+            raise OSError("stdin is not a console")
+        self._buffer = (_input_record_type() * self.BATCH)()
+
+    def pending(self) -> bool:
+        count = self._ctypes.c_uint32()
+        if not self._k32.GetNumberOfConsoleInputEvents(self._handle, self._ctypes.byref(count)):
+            raise OSError("cannot read the console input")
+        return count.value > 0
+
+    def read(self) -> List[str]:
+        events = []
+        while len(events) < self.MAX_EVENTS and self.pending():
+            count = self._ctypes.c_uint32()
+            if not self._k32.ReadConsoleInputW(self._handle, self._buffer, self.BATCH,
+                                               self._ctypes.byref(count)):
+                raise OSError("cannot read the console input")
+            for record in self._buffer[:count.value]:
+                if record.EventType == 1:  # KEY_EVENT; focus, mouse and resize events are skipped
+                    key = record.Event.Key
+                    events.append((bool(key.bKeyDown), key.wVirtualKeyCode, chr(key.uChar),
+                                   key.dwControlKeyState, key.wRepeatCount))
+        return windows_events_to_keys(events)
+
+
+def _windows_reader():
+    try:
+        return _ConsoleReader()
+    except Exception:  # not a console, or an exotic Python: msvcrt still works
+        import msvcrt
+        return _MsvcrtReader(msvcrt)
 
 
 def _win_vt_mode(enable: bool, restore: Optional[int] = None) -> Optional[int]:
@@ -1199,7 +1346,6 @@ def run_editor(session) -> None:
 
 
 def _run_windows(editor: Editor) -> None:
-    import msvcrt
     import time
 
     old_mode = _win_vt_mode(True)
@@ -1207,13 +1353,14 @@ def _run_windows(editor: Editor) -> None:
         raise RuntimeError("This Windows console does not support the editor (needs Windows 10+).")
     color_system = Console().color_system or "256"
     last = shutil.get_terminal_size()
+    reader = _windows_reader()
     try:
         _write("\x1b[?1049h\x1b[2J")
         _draw(editor, color_system)
         last_tick = time.monotonic()
         while not editor.done:
             try:
-                if not msvcrt.kbhit():
+                if not reader.pending():
                     time.sleep(0.02)
                     size = shutil.get_terminal_size()
                     if size != last:  # no resize signal on Windows: compare sizes instead
@@ -1224,7 +1371,7 @@ def _run_windows(editor: Editor) -> None:
                         last_tick = time.monotonic()  # the progress line, ~10 times a second
                         _draw(editor, color_system)
                     continue
-                keys = read_windows_keys(msvcrt)
+                keys = reader.read()
             except KeyboardInterrupt:
                 keys = ["CTRL_C"]
             for key in keys:

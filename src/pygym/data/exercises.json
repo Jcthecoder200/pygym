@@ -2512,5 +2512,2642 @@
       3.5,
       1
     ]
+  },
+  {
+    "id": "zip-04",
+    "target_function": "zip",
+    "difficulty": 2,
+    "question_text": "Use zip to write a function 'passed_report' that takes a list of student names and a list of scores. Return a list of strings 'name: score' for the students whose score is 50 or more, in the original order. If one list is longer, ignore its extra items. Example: ['Ana', 'Ben'], [72, 40] -> ['Ana: 72'].",
+    "function_name": "passed_report",
+    "function_signature": "def passed_report(names, scores):",
+    "reference_solution": "def passed_report(names, scores):\n    report = []\n    for name, score in zip(names, scores):\n        if score >= 50:\n            report.append(f\"{name}: {score}\")\n    return report",
+    "test_inputs": [
+      [
+        [
+          "Ana",
+          "Ben"
+        ],
+        [
+          72,
+          40
+        ]
+      ],
+      [
+        [
+          "Cy",
+          "Di",
+          "Ed"
+        ],
+        [
+          50,
+          49,
+          100
+        ]
+      ],
+      [
+        [
+          "Flo"
+        ],
+        [
+          10
+        ]
+      ],
+      [
+        [
+          "Gus",
+          "Hal",
+          "Ivy"
+        ],
+        [
+          90,
+          80
+        ]
+      ],
+      [
+        [],
+        []
+      ]
+    ],
+    "hint": "zip(names, scores) gives one pair at a time and stops at the shorter list. 50 itself counts as passed.",
+    "expected_outputs": [
+      [
+        "Ana: 72"
+      ],
+      [
+        "Cy: 50",
+        "Ed: 100"
+      ],
+      [],
+      [
+        "Gus: 90",
+        "Hal: 80"
+      ],
+      []
+    ]
+  },
+  {
+    "id": "zip-05",
+    "target_function": "zip",
+    "difficulty": 3,
+    "question_text": "Use zip to write a function 'ranked_totals' that takes a list of names and a list of amounts (a name can appear many times). Add up the amounts of each name and return a list of [name, total] lists, with the biggest total first. If two totals are equal, the name that comes first alphabetically goes first. Ignore extra items in the longer list. Example: ['a', 'b', 'a'], [5, 7, 4] -> [['a', 9], ['b', 7]].",
+    "function_name": "ranked_totals",
+    "function_signature": "def ranked_totals(names, amounts):",
+    "reference_solution": "def ranked_totals(names, amounts):\n    totals = {}\n    for name, amount in zip(names, amounts):\n        if name in totals:\n            totals[name] += amount\n        else:\n            totals[name] = amount\n    ranked = sorted(totals.items(), key=lambda pair: (-pair[1], pair[0]))\n    return [[name, total] for name, total in ranked]",
+    "test_inputs": [
+      [
+        [
+          "a",
+          "b",
+          "a"
+        ],
+        [
+          5,
+          7,
+          4
+        ]
+      ],
+      [
+        [
+          "x",
+          "y"
+        ],
+        [
+          3,
+          3
+        ]
+      ],
+      [
+        [],
+        []
+      ],
+      [
+        [
+          "m",
+          "n",
+          "m",
+          "n"
+        ],
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      [
+        [
+          "zed"
+        ],
+        [
+          8,
+          9,
+          10
+        ]
+      ],
+      [
+        [
+          "b",
+          "a",
+          "c",
+          "a"
+        ],
+        [
+          2,
+          2,
+          5,
+          0
+        ]
+      ]
+    ],
+    "hint": "Build a dict of totals while you loop over zip(names, amounts). To sort, give sorted a key that returns (-total, name).",
+    "expected_outputs": [
+      [
+        [
+          "a",
+          9
+        ],
+        [
+          "b",
+          7
+        ]
+      ],
+      [
+        [
+          "x",
+          3
+        ],
+        [
+          "y",
+          3
+        ]
+      ],
+      [],
+      [
+        [
+          "m",
+          4
+        ],
+        [
+          "n",
+          2
+        ]
+      ],
+      [
+        [
+          "zed",
+          8
+        ]
+      ],
+      [
+        [
+          "c",
+          5
+        ],
+        [
+          "a",
+          2
+        ],
+        [
+          "b",
+          2
+        ]
+      ]
+    ]
+  },
+  {
+    "id": "sum-04",
+    "target_function": "sum",
+    "difficulty": 2,
+    "question_text": "Use sum to write a function 'days_to_goal' that takes a list of daily step counts and a goal. Return the smallest number of days after which the total steps are at least the goal, or -1 if the goal is never reached. A goal of 0 or less is reached after 0 days. Example: [3000, 4000, 5000], 7000 -> 2.",
+    "function_name": "days_to_goal",
+    "function_signature": "def days_to_goal(daily_steps, goal):",
+    "reference_solution": "def days_to_goal(daily_steps, goal):\n    if goal <= 0:\n        return 0\n    for day in range(1, len(daily_steps) + 1):\n        if sum(daily_steps[:day]) >= goal:\n            return day\n    return -1",
+    "test_inputs": [
+      [
+        [
+          3000,
+          4000,
+          5000
+        ],
+        7000
+      ],
+      [
+        [
+          3000,
+          4000,
+          5000
+        ],
+        12000
+      ],
+      [
+        [
+          3000,
+          4000,
+          5000
+        ],
+        12001
+      ],
+      [
+        [],
+        1
+      ],
+      [
+        [
+          500
+        ],
+        0
+      ],
+      [
+        [
+          3000,
+          4000
+        ],
+        3000
+      ]
+    ],
+    "hint": "daily_steps[:day] is the first 'day' items. Try day = 1, 2, 3 ... and stop at the first sum that is big enough.",
+    "expected_outputs": [
+      2,
+      3,
+      -1,
+      -1,
+      0,
+      1
+    ]
+  },
+  {
+    "id": "sum-05",
+    "target_function": "sum",
+    "difficulty": 3,
+    "question_text": "Use sum to write a function 'strong_teams' that takes a list of [team, points] lists (a team can appear many times) and a limit. Return a list of [team, total_points] lists for the teams whose total is at least the limit, sorted by team name. Example: [['red', 3], ['blue', 5], ['red', 4]], 6 -> [['red', 7]].",
+    "function_name": "strong_teams",
+    "function_signature": "def strong_teams(records, limit):",
+    "reference_solution": "def strong_teams(records, limit):\n    groups = {}\n    for team, points in records:\n        groups.setdefault(team, []).append(points)\n    result = []\n    for team in sorted(groups):\n        total = sum(groups[team])\n        if total >= limit:\n            result.append([team, total])\n    return result",
+    "test_inputs": [
+      [
+        [
+          [
+            "red",
+            3
+          ],
+          [
+            "blue",
+            5
+          ],
+          [
+            "red",
+            4
+          ]
+        ],
+        6
+      ],
+      [
+        [],
+        1
+      ],
+      [
+        [
+          [
+            "a",
+            1
+          ],
+          [
+            "b",
+            1
+          ]
+        ],
+        5
+      ],
+      [
+        [
+          [
+            "b",
+            2
+          ],
+          [
+            "a",
+            2
+          ],
+          [
+            "b",
+            2
+          ],
+          [
+            "a",
+            2
+          ]
+        ],
+        4
+      ],
+      [
+        [
+          [
+            "x",
+            -3
+          ],
+          [
+            "x",
+            5
+          ]
+        ],
+        2
+      ],
+      [
+        [
+          [
+            "z",
+            10
+          ]
+        ],
+        10
+      ]
+    ],
+    "hint": "Collect the points of each team in a dict of lists first. Then loop over the sorted team names and use sum.",
+    "expected_outputs": [
+      [
+        [
+          "red",
+          7
+        ]
+      ],
+      [],
+      [],
+      [
+        [
+          "a",
+          4
+        ],
+        [
+          "b",
+          4
+        ]
+      ],
+      [
+        [
+          "x",
+          2
+        ]
+      ],
+      [
+        [
+          "z",
+          10
+        ]
+      ]
+    ]
+  },
+  {
+    "id": "sorted-04",
+    "target_function": "sorted",
+    "difficulty": 2,
+    "question_text": "Use sorted to write a function 'best_scores' that takes a list of scores and a number n. Ignore scores below 0 (they are errors). Return the n highest of the other scores, biggest first. If there are fewer than n valid scores, return all of them. Example: [40, -1, 90, 75], 2 -> [90, 75].",
+    "function_name": "best_scores",
+    "function_signature": "def best_scores(scores, n):",
+    "reference_solution": "def best_scores(scores, n):\n    valid = [s for s in scores if s >= 0]\n    return sorted(valid, reverse=True)[:n]",
+    "test_inputs": [
+      [
+        [
+          40,
+          -1,
+          90,
+          75
+        ],
+        2
+      ],
+      [
+        [
+          0,
+          -1,
+          0
+        ],
+        5
+      ],
+      [
+        [
+          -4,
+          -9
+        ],
+        3
+      ],
+      [
+        [],
+        1
+      ],
+      [
+        [
+          -1,
+          5
+        ],
+        3
+      ],
+      [
+        [
+          0,
+          1,
+          2,
+          3
+        ],
+        0
+      ]
+    ],
+    "hint": "sorted(..., reverse=True) puts the biggest first. A slice [:n] takes the first n items.",
+    "expected_outputs": [
+      [
+        90,
+        75
+      ],
+      [
+        0,
+        0
+      ],
+      [],
+      [],
+      [
+        5
+      ],
+      []
+    ]
+  },
+  {
+    "id": "sorted-05",
+    "target_function": "sorted",
+    "difficulty": 3,
+    "question_text": "Use sorted to write a function 'names_by_grade' that takes a list of [name, grade] lists. Return a list of the names: the highest grade first, and the names with the same grade in alphabetical order. Example: [['Cy', 70], ['Ana', 90], ['Bo', 70]] -> ['Ana', 'Bo', 'Cy'].",
+    "function_name": "names_by_grade",
+    "function_signature": "def names_by_grade(records):",
+    "reference_solution": "def names_by_grade(records):\n    by_grade = {}\n    for name, grade in records:\n        if grade not in by_grade:\n            by_grade[grade] = []\n        by_grade[grade].append(name)\n    result = []\n    for grade in sorted(by_grade, reverse=True):\n        result.extend(sorted(by_grade[grade]))\n    return result",
+    "test_inputs": [
+      [
+        [
+          [
+            "Cy",
+            70
+          ],
+          [
+            "Ana",
+            90
+          ],
+          [
+            "Bo",
+            70
+          ]
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          [
+            "Zoe",
+            50
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            "b",
+            1
+          ],
+          [
+            "a",
+            1
+          ],
+          [
+            "c",
+            2
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            "Mo",
+            88
+          ],
+          [
+            "Li",
+            88
+          ],
+          [
+            "Al",
+            88
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            "x",
+            3
+          ],
+          [
+            "y",
+            2
+          ],
+          [
+            "z",
+            1
+          ]
+        ]
+      ]
+    ],
+    "hint": "Group the names by grade in a dict. Then go through the grades from high to low with sorted(..., reverse=True) and add the sorted names of each grade.",
+    "expected_outputs": [
+      [
+        "Ana",
+        "Bo",
+        "Cy"
+      ],
+      [],
+      [
+        "Zoe"
+      ],
+      [
+        "c",
+        "a",
+        "b"
+      ],
+      [
+        "Al",
+        "Li",
+        "Mo"
+      ],
+      [
+        "x",
+        "y",
+        "z"
+      ]
+    ]
+  },
+  {
+    "id": "map-04",
+    "target_function": "map",
+    "difficulty": 2,
+    "question_text": "Use map to write a function 'parse_whole_numbers' that takes a list of strings. Remove the spaces around each string, then return a list of the integers for the strings that are whole numbers (an optional '-' sign followed by digits only). Ignore all other strings. Example: [' 12 ', 'abc', '-5', '3.5'] -> [12, -5].",
+    "function_name": "parse_whole_numbers",
+    "function_signature": "def parse_whole_numbers(texts):",
+    "reference_solution": "def parse_whole_numbers(texts):\n    cleaned = list(map(str.strip, texts))\n    result = []\n    for text in cleaned:\n        if text.lstrip(\"-\").isdigit():\n            result.append(int(text))\n    return result",
+    "test_inputs": [
+      [
+        [
+          " 12 ",
+          "abc",
+          "-5",
+          "3.5"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "7",
+          "",
+          " ",
+          "x9"
+        ]
+      ],
+      [
+        [
+          "0",
+          " -0 ",
+          "100"
+        ]
+      ],
+      [
+        [
+          "1 2",
+          "42"
+        ]
+      ]
+    ],
+    "hint": "map(str.strip, texts) removes the spaces of every string. isdigit() is True only for digits, so remove a leading '-' before you test.",
+    "expected_outputs": [
+      [
+        12,
+        -5
+      ],
+      [],
+      [
+        7
+      ],
+      [
+        0,
+        0,
+        100
+      ],
+      [
+        42
+      ]
+    ]
+  },
+  {
+    "id": "map-05",
+    "target_function": "map",
+    "difficulty": 3,
+    "question_text": "Use map to write a function 'words_by_length' that takes a sentence (words separated by spaces). Return a list of [length, words] lists, one for each word length, with the lengths from small to big. 'words' is the list of different words of that length, in the order they first appear. Example: 'to be or not to be' -> [[2, ['to', 'be', 'or']], [3, ['not']]].",
+    "function_name": "words_by_length",
+    "function_signature": "def words_by_length(sentence):",
+    "reference_solution": "def words_by_length(sentence):\n    words = sentence.split()\n    lengths = list(map(len, words))\n    table = {}\n    for word, n in zip(words, lengths):\n        if n not in table:\n            table[n] = []\n        if word not in table[n]:\n            table[n].append(word)\n    return [[n, table[n]] for n in sorted(table)]",
+    "test_inputs": [
+      [
+        "to be or not to be"
+      ],
+      [
+        ""
+      ],
+      [
+        "a"
+      ],
+      [
+        "one two six ten four five"
+      ],
+      [
+        "go go go"
+      ],
+      [
+        "I am here and so are you"
+      ]
+    ],
+    "hint": "Use map(len, words) for the lengths, then store the words in a dict that has the length as key.",
+    "expected_outputs": [
+      [
+        [
+          2,
+          [
+            "to",
+            "be",
+            "or"
+          ]
+        ],
+        [
+          3,
+          [
+            "not"
+          ]
+        ]
+      ],
+      [],
+      [
+        [
+          1,
+          [
+            "a"
+          ]
+        ]
+      ],
+      [
+        [
+          3,
+          [
+            "one",
+            "two",
+            "six",
+            "ten"
+          ]
+        ],
+        [
+          4,
+          [
+            "four",
+            "five"
+          ]
+        ]
+      ],
+      [
+        [
+          2,
+          [
+            "go"
+          ]
+        ]
+      ],
+      [
+        [
+          1,
+          [
+            "I"
+          ]
+        ],
+        [
+          2,
+          [
+            "am",
+            "so"
+          ]
+        ],
+        [
+          3,
+          [
+            "and",
+            "are",
+            "you"
+          ]
+        ],
+        [
+          4,
+          [
+            "here"
+          ]
+        ]
+      ]
+    ]
+  },
+  {
+    "id": "filter-04",
+    "target_function": "filter",
+    "difficulty": 2,
+    "question_text": "Use filter to write a function 'tidy_emails' that takes a list of values. Keep only the strings that contain exactly one '@' with at least one character before it and one after it. Return them in lower case, in the original order. Ignore values that are not strings. Example: ['Ann@Example.com', 5, '@x', 'a@@b'] -> ['ann@example.com'].",
+    "function_name": "tidy_emails",
+    "function_signature": "def tidy_emails(items):",
+    "reference_solution": "def tidy_emails(items):\n    result = []\n    for item in filter(lambda value: isinstance(value, str), items):\n        if item.count(\"@\") == 1 and not item.startswith(\"@\") and not item.endswith(\"@\"):\n            result.append(item.lower())\n    return result",
+    "test_inputs": [
+      [
+        [
+          "Ann@Example.com",
+          5,
+          "@x",
+          "a@@b"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "x@y",
+          "x@",
+          null,
+          true
+        ]
+      ],
+      [
+        [
+          "A@Example.org",
+          "c@example.net",
+          "plain"
+        ]
+      ],
+      [
+        [
+          1,
+          2.5,
+          [
+            "a@b"
+          ]
+        ]
+      ]
+    ],
+    "hint": "First filter out the values that are not strings (isinstance), then check each string with count, startswith and endswith.",
+    "expected_outputs": [
+      [
+        "ann@example.com"
+      ],
+      [],
+      [
+        "x@y"
+      ],
+      [
+        "a@example.org",
+        "c@example.net"
+      ],
+      []
+    ]
+  },
+  {
+    "id": "filter-05",
+    "target_function": "filter",
+    "difficulty": 3,
+    "question_text": "Use filter to write a function 'big_unique' that takes a list of numbers and a limit. Return the numbers that are strictly bigger than the limit, without repeats: keep only the first copy of each number, in the original order. Example: [5, 9, 5, 2, 9, 7], 4 -> [5, 9, 7].",
+    "function_name": "big_unique",
+    "function_signature": "def big_unique(nums, limit):",
+    "reference_solution": "def big_unique(nums, limit):\n    seen = set()\n    result = []\n    for n in filter(lambda x: x > limit, nums):\n        if n not in seen:\n            seen.add(n)\n            result.append(n)\n    return result",
+    "test_inputs": [
+      [
+        [
+          5,
+          9,
+          5,
+          2,
+          9,
+          7
+        ],
+        4
+      ],
+      [
+        [],
+        0
+      ],
+      [
+        [
+          1,
+          1,
+          1
+        ],
+        1
+      ],
+      [
+        [
+          3,
+          3,
+          8,
+          8,
+          3
+        ],
+        2
+      ],
+      [
+        [
+          -5,
+          -1,
+          -5
+        ],
+        -6
+      ],
+      [
+        [
+          10,
+          20,
+          30
+        ],
+        99
+      ]
+    ],
+    "hint": "Let filter keep the big numbers. A set remembers which numbers you have already added to the result.",
+    "expected_outputs": [
+      [
+        5,
+        9,
+        7
+      ],
+      [],
+      [],
+      [
+        3,
+        8
+      ],
+      [
+        -5,
+        -1
+      ],
+      []
+    ]
+  },
+  {
+    "id": "enumerate-04",
+    "target_function": "enumerate",
+    "difficulty": 2,
+    "question_text": "Use enumerate to write a function 'change_points' that takes a list of readings and returns the positions (starting at 0) where the reading is different from the one just before it. The first reading is never a change point. Example: [5, 5, 7, 7, 5] -> [2, 4].",
+    "function_name": "change_points",
+    "function_signature": "def change_points(readings):",
+    "reference_solution": "def change_points(readings):\n    points = []\n    for i, value in enumerate(readings):\n        if i > 0 and value != readings[i - 1]:\n            points.append(i)\n    return points",
+    "test_inputs": [
+      [
+        [
+          5,
+          5,
+          7,
+          7,
+          5
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          1
+        ]
+      ],
+      [
+        [
+          1,
+          2,
+          3,
+          4
+        ]
+      ],
+      [
+        [
+          9,
+          9,
+          9
+        ]
+      ],
+      [
+        [
+          "a",
+          "b",
+          "b",
+          "a"
+        ]
+      ]
+    ],
+    "hint": "enumerate gives the position i and the value. Compare the value with readings[i - 1], but only when i > 0.",
+    "expected_outputs": [
+      [
+        2,
+        4
+      ],
+      [],
+      [],
+      [
+        1,
+        2,
+        3
+      ],
+      [],
+      [
+        1,
+        3
+      ]
+    ]
+  },
+  {
+    "id": "enumerate-05",
+    "target_function": "enumerate",
+    "difficulty": 3,
+    "question_text": "Use enumerate to write a function 'repeated_items' that takes a list of items (numbers or strings). Return a list of [item, last_position] lists for the items that appear more than once. 'last_position' is the position (starting at 0) of the last copy. Sort the result by last_position, smallest first. Example: ['a', 'b', 'a', 'c', 'b'] -> [['a', 2], ['b', 4]].",
+    "function_name": "repeated_items",
+    "function_signature": "def repeated_items(items):",
+    "reference_solution": "def repeated_items(items):\n    counts = {}\n    last = {}\n    for i, item in enumerate(items):\n        counts[item] = counts.get(item, 0) + 1\n        last[item] = i\n    result = [[item, last[item]] for item in last if counts[item] > 1]\n    return sorted(result, key=lambda pair: pair[1])",
+    "test_inputs": [
+      [
+        [
+          "a",
+          "b",
+          "a",
+          "c",
+          "b"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          1,
+          2,
+          3
+        ]
+      ],
+      [
+        [
+          7,
+          7,
+          7,
+          7
+        ]
+      ],
+      [
+        [
+          "x",
+          "y",
+          "x",
+          "y",
+          "x"
+        ]
+      ],
+      [
+        [
+          3,
+          1,
+          3,
+          1,
+          2,
+          2
+        ]
+      ]
+    ],
+    "hint": "Keep two dicts while you loop with enumerate: how many times you saw each item, and the position of the latest copy.",
+    "expected_outputs": [
+      [
+        [
+          "a",
+          2
+        ],
+        [
+          "b",
+          4
+        ]
+      ],
+      [],
+      [],
+      [
+        [
+          7,
+          3
+        ]
+      ],
+      [
+        [
+          "y",
+          3
+        ],
+        [
+          "x",
+          4
+        ]
+      ],
+      [
+        [
+          3,
+          2
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          2,
+          5
+        ]
+      ]
+    ]
+  },
+  {
+    "id": "len-04",
+    "target_function": "len",
+    "difficulty": 2,
+    "question_text": "Use len to write a function 'lines_too_long' that takes a list of text lines and a maximum width. Return the line numbers (starting at 1) of the lines that are longer than the width. Example: ['short', 'a much longer line', 'ok'], 5 -> [2].",
+    "function_name": "lines_too_long",
+    "function_signature": "def lines_too_long(lines, width):",
+    "reference_solution": "def lines_too_long(lines, width):\n    too_long = []\n    for number in range(1, len(lines) + 1):\n        if len(lines[number - 1]) > width:\n            too_long.append(number)\n    return too_long",
+    "test_inputs": [
+      [
+        [
+          "short",
+          "a much longer line",
+          "ok"
+        ],
+        5
+      ],
+      [
+        [],
+        10
+      ],
+      [
+        [
+          "abcd",
+          "abc",
+          "abcdef"
+        ],
+        3
+      ],
+      [
+        [
+          "",
+          " "
+        ],
+        0
+      ],
+      [
+        [
+          "same",
+          "size"
+        ],
+        4
+      ]
+    ],
+    "hint": "Count line numbers from 1 to len(lines). The line with number k is lines[k - 1].",
+    "expected_outputs": [
+      [
+        2
+      ],
+      [],
+      [
+        1,
+        3
+      ],
+      [
+        2
+      ],
+      []
+    ]
+  },
+  {
+    "id": "len-05",
+    "target_function": "len",
+    "difficulty": 3,
+    "question_text": "Use len to write a function 'common_prefix' that takes a list of words and returns the longest text that every word starts with. If there are no words, or the words have nothing in common at the start, return ''. Example: ['flower', 'flow', 'flight'] -> 'fl'.",
+    "function_name": "common_prefix",
+    "function_signature": "def common_prefix(words):",
+    "reference_solution": "def common_prefix(words):\n    if len(words) == 0:\n        return \"\"\n    prefix = words[0]\n    for word in words[1:]:\n        while not word.startswith(prefix):\n            prefix = prefix[:-1]\n    return prefix",
+    "test_inputs": [
+      [
+        [
+          "flower",
+          "flow",
+          "flight"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "dog",
+          "car"
+        ]
+      ],
+      [
+        [
+          "abc",
+          "abd"
+        ]
+      ],
+      [
+        [
+          "same",
+          "same",
+          "same"
+        ]
+      ],
+      [
+        [
+          "ab",
+          "abc",
+          "",
+          "abd"
+        ]
+      ]
+    ],
+    "hint": "Start with the first word as the prefix. For every other word, cut the last letter off the prefix until the word starts with it.",
+    "expected_outputs": [
+      "fl",
+      "",
+      "",
+      "ab",
+      "same",
+      ""
+    ]
+  },
+  {
+    "id": "max-04",
+    "target_function": "max",
+    "difficulty": 2,
+    "question_text": "Use max to write a function 'hottest_day' that takes a list of daily temperatures and returns the position (starting at 0) of the hottest day. If several days have the highest temperature, return the first of them. For an empty list return -1. Example: [20, 31, 25, 31] -> 1.",
+    "function_name": "hottest_day",
+    "function_signature": "def hottest_day(temps):",
+    "reference_solution": "def hottest_day(temps):\n    if not temps:\n        return -1\n    highest = max(temps)\n    for i, t in enumerate(temps):\n        if t == highest:\n            return i",
+    "test_inputs": [
+      [
+        [
+          20,
+          31,
+          25,
+          31
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          5
+        ]
+      ],
+      [
+        [
+          -3,
+          -8,
+          -3
+        ]
+      ],
+      [
+        [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      ],
+      [
+        [
+          9,
+          8,
+          7
+        ]
+      ]
+    ],
+    "hint": "Find the highest value with max, then look for the first position that holds it.",
+    "expected_outputs": [
+      1,
+      -1,
+      0,
+      0,
+      4,
+      0
+    ]
+  },
+  {
+    "id": "max-05",
+    "target_function": "max",
+    "difficulty": 3,
+    "question_text": "Use max to write a function 'best_scores' that takes a list of [player, score] lists (a player can appear many times). Return a list of [player, best_score] lists, one for each player, with the best score first. If two players have the same best score, the name that comes first alphabetically goes first. Example: [['Al', 5], ['Bo', 9], ['Al', 7]] -> [['Bo', 9], ['Al', 7]].",
+    "function_name": "best_scores",
+    "function_signature": "def best_scores(records):",
+    "reference_solution": "def best_scores(records):\n    best = {}\n    for player, score in records:\n        if player not in best:\n            best[player] = score\n        else:\n            best[player] = max(best[player], score)\n    order = sorted(best, key=lambda p: (-best[p], p))\n    return [[p, best[p]] for p in order]",
+    "test_inputs": [
+      [
+        [
+          [
+            "Al",
+            5
+          ],
+          [
+            "Bo",
+            9
+          ],
+          [
+            "Al",
+            7
+          ]
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          [
+            "x",
+            1
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            "b",
+            4
+          ],
+          [
+            "a",
+            4
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            "Cy",
+            -2
+          ],
+          [
+            "Cy",
+            -5
+          ],
+          [
+            "Di",
+            -9
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            "p",
+            1
+          ],
+          [
+            "q",
+            2
+          ],
+          [
+            "p",
+            3
+          ],
+          [
+            "q",
+            1
+          ]
+        ]
+      ]
+    ],
+    "hint": "Keep the best score of each player in a dict, updated with max. Sort the player names with a key that returns (-score, name).",
+    "expected_outputs": [
+      [
+        [
+          "Bo",
+          9
+        ],
+        [
+          "Al",
+          7
+        ]
+      ],
+      [],
+      [
+        [
+          "x",
+          1
+        ]
+      ],
+      [
+        [
+          "a",
+          4
+        ],
+        [
+          "b",
+          4
+        ]
+      ],
+      [
+        [
+          "Cy",
+          -2
+        ],
+        [
+          "Di",
+          -9
+        ]
+      ],
+      [
+        [
+          "p",
+          3
+        ],
+        [
+          "q",
+          2
+        ]
+      ]
+    ]
+  },
+  {
+    "id": "min-04",
+    "target_function": "min",
+    "difficulty": 2,
+    "question_text": "Use min to write a function 'cheapest_in_stock' that takes a list of [name, price, stock] lists and returns the name of the cheapest product that is in stock (stock is more than 0). If two products have the same lowest price, return the name that comes first alphabetically. If nothing is in stock, return ''. Example: [['pen', 2, 5], ['ink', 1, 0]] -> 'pen'.",
+    "function_name": "cheapest_in_stock",
+    "function_signature": "def cheapest_in_stock(items):",
+    "reference_solution": "def cheapest_in_stock(items):\n    options = []\n    for name, price, stock in items:\n        if stock > 0:\n            options.append([price, name])\n    if not options:\n        return \"\"\n    return min(options)[1]",
+    "test_inputs": [
+      [
+        [
+          [
+            "pen",
+            2,
+            5
+          ],
+          [
+            "ink",
+            1,
+            0
+          ]
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          [
+            "a",
+            3,
+            0
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            "zip",
+            4,
+            1
+          ],
+          [
+            "bag",
+            4,
+            2
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            "x",
+            9,
+            1
+          ],
+          [
+            "y",
+            8,
+            1
+          ],
+          [
+            "z",
+            7,
+            0
+          ]
+        ]
+      ]
+    ],
+    "hint": "Collect [price, name] pairs for the products in stock. min compares lists item by item: first the price, then the name.",
+    "expected_outputs": [
+      "pen",
+      "",
+      "",
+      "bag",
+      "y"
+    ]
+  },
+  {
+    "id": "min-05",
+    "target_function": "min",
+    "difficulty": 3,
+    "question_text": "Use min to write a function 'smallest_gap' that takes a list of numbers and returns the smallest difference between any two of them (a number that is not negative). If there are fewer than two numbers, return None. Example: [10, 3, 7, 20] -> 3.",
+    "function_name": "smallest_gap",
+    "function_signature": "def smallest_gap(nums):",
+    "reference_solution": "def smallest_gap(nums):\n    if len(nums) < 2:\n        return None\n    gaps = []\n    for i in range(len(nums)):\n        for j in range(i + 1, len(nums)):\n            gaps.append(abs(nums[i] - nums[j]))\n    return min(gaps)",
+    "test_inputs": [
+      [
+        [
+          10,
+          3,
+          7,
+          20
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          5
+        ]
+      ],
+      [
+        [
+          4,
+          4
+        ]
+      ],
+      [
+        [
+          -5,
+          5,
+          0
+        ]
+      ],
+      [
+        [
+          100,
+          1,
+          50,
+          52
+        ]
+      ]
+    ],
+    "hint": "Two loops, one inside the other, visit every pair once if the inner one starts at i + 1. Collect the differences, then take min.",
+    "expected_outputs": [
+      3,
+      null,
+      null,
+      0,
+      5,
+      2
+    ]
+  },
+  {
+    "id": "range-04",
+    "target_function": "range",
+    "difficulty": 2,
+    "question_text": "Use range to write a function 'leap_years' that takes a first year and a last year (both included) and returns the list of leap years between them. A leap year is divisible by 4, except years divisible by 100, unless they are also divisible by 400. Example: 1896, 1904 -> [1896, 1904].",
+    "function_name": "leap_years",
+    "function_signature": "def leap_years(start, end):",
+    "reference_solution": "def leap_years(start, end):\n    years = []\n    for year in range(start, end + 1):\n        if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0):\n            years.append(year)\n    return years",
+    "test_inputs": [
+      [
+        1896,
+        1904
+      ],
+      [
+        1900,
+        1900
+      ],
+      [
+        2000,
+        2000
+      ],
+      [
+        2021,
+        2023
+      ],
+      [
+        1999,
+        2008
+      ],
+      [
+        2010,
+        2000
+      ]
+    ],
+    "hint": "range(start, end + 1) includes the last year. If start is bigger than end the range is empty.",
+    "expected_outputs": [
+      [
+        1896,
+        1904
+      ],
+      [],
+      [
+        2000
+      ],
+      [],
+      [
+        2000,
+        2004,
+        2008
+      ],
+      []
+    ]
+  },
+  {
+    "id": "range-05",
+    "target_function": "range",
+    "difficulty": 3,
+    "question_text": "Use range to write a function 'primes_up_to' that takes a number n and returns the list of all prime numbers from 2 up to n (n included). A prime has no divisors except 1 and itself. For n smaller than 2 return []. Example: 20 -> [2, 3, 5, 7, 11, 13, 17, 19].",
+    "function_name": "primes_up_to",
+    "function_signature": "def primes_up_to(n):",
+    "reference_solution": "def primes_up_to(n):\n    if n < 2:\n        return []\n    is_prime = [True] * (n + 1)\n    is_prime[0] = is_prime[1] = False\n    for i in range(2, n + 1):\n        if is_prime[i]:\n            for j in range(i * i, n + 1, i):\n                is_prime[j] = False\n    return [i for i in range(n + 1) if is_prime[i]]",
+    "test_inputs": [
+      [
+        20
+      ],
+      [
+        1
+      ],
+      [
+        2
+      ],
+      [
+        0
+      ],
+      [
+        30
+      ],
+      [
+        97
+      ]
+    ],
+    "hint": "Sieve of Eratosthenes: keep a list of True/False. For each prime i, cross out i*i, i*i + i, ... range(i * i, n + 1, i) steps by i.",
+    "expected_outputs": [
+      [
+        2,
+        3,
+        5,
+        7,
+        11,
+        13,
+        17,
+        19
+      ],
+      [],
+      [
+        2
+      ],
+      [],
+      [
+        2,
+        3,
+        5,
+        7,
+        11,
+        13,
+        17,
+        19,
+        23,
+        29
+      ],
+      [
+        2,
+        3,
+        5,
+        7,
+        11,
+        13,
+        17,
+        19,
+        23,
+        29,
+        31,
+        37,
+        41,
+        43,
+        47,
+        53,
+        59,
+        61,
+        67,
+        71,
+        73,
+        79,
+        83,
+        89,
+        97
+      ]
+    ]
+  },
+  {
+    "id": "any-04",
+    "target_function": "any",
+    "difficulty": 2,
+    "question_text": "Use any to write a function 'count_flagged' that takes a list of sentences and a list of forbidden words (in lower case). Return how many sentences contain at least one forbidden word. Ignore upper and lower case. The sentences have no punctuation. Example: ['Free Gift now', 'hello there'], ['gift'] -> 1.",
+    "function_name": "count_flagged",
+    "function_signature": "def count_flagged(sentences, forbidden):",
+    "reference_solution": "def count_flagged(sentences, forbidden):\n    flagged = 0\n    for sentence in sentences:\n        words = sentence.lower().split()\n        if any(word in forbidden for word in words):\n            flagged += 1\n    return flagged",
+    "test_inputs": [
+      [
+        [
+          "Free Gift now",
+          "hello there"
+        ],
+        [
+          "gift"
+        ]
+      ],
+      [
+        [],
+        [
+          "spam"
+        ]
+      ],
+      [
+        [
+          "nothing here"
+        ],
+        []
+      ],
+      [
+        [
+          "SPAM spam",
+          "ham and eggs",
+          "Eggs"
+        ],
+        [
+          "spam",
+          "eggs"
+        ]
+      ],
+      [
+        [
+          "gifted"
+        ],
+        [
+          "gift"
+        ]
+      ]
+    ],
+    "hint": "Split each sentence into lower case words. any(word in forbidden for word in words) is True when one word matches.",
+    "expected_outputs": [
+      1,
+      0,
+      0,
+      3,
+      0
+    ]
+  },
+  {
+    "id": "any-05",
+    "target_function": "any",
+    "difficulty": 3,
+    "question_text": "Use any to write a function 'has_route' that takes a list of two-way roads, each a [city, city] list, and two cities 'start' and 'goal'. Return True if you can travel from start to goal using the roads (maybe through other cities), otherwise False. A city that is on no road can only reach itself. Example: [['A', 'B'], ['B', 'C']], 'A', 'C' -> True.",
+    "function_name": "has_route",
+    "function_signature": "def has_route(roads, start, goal):",
+    "reference_solution": "def has_route(roads, start, goal):\n    if not any(start in road for road in roads):\n        return start == goal\n    neighbours = {}\n    for a, b in roads:\n        neighbours.setdefault(a, []).append(b)\n        neighbours.setdefault(b, []).append(a)\n    seen = set()\n    stack = [start]\n    while stack:\n        city = stack.pop()\n        if city == goal:\n            return True\n        if city not in seen:\n            seen.add(city)\n            for other in neighbours.get(city, []):\n                stack.append(other)\n    return False",
+    "test_inputs": [
+      [
+        [
+          [
+            "A",
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ]
+        ],
+        "A",
+        "C"
+      ],
+      [
+        [
+          [
+            "A",
+            "B"
+          ],
+          [
+            "C",
+            "D"
+          ]
+        ],
+        "A",
+        "D"
+      ],
+      [
+        [],
+        "X",
+        "X"
+      ],
+      [
+        [
+          [
+            "A",
+            "B"
+          ]
+        ],
+        "Z",
+        "A"
+      ],
+      [
+        [
+          [
+            "A",
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C",
+            "A"
+          ]
+        ],
+        "C",
+        "B"
+      ],
+      [
+        [
+          [
+            "P",
+            "Q"
+          ]
+        ],
+        "Q",
+        "P"
+      ]
+    ],
+    "hint": "Depth-first search: keep a stack of cities to visit and a set of cities already seen. any(...) can tell at once when the start city is on no road.",
+    "expected_outputs": [
+      true,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  {
+    "id": "all-04",
+    "target_function": "all",
+    "difficulty": 2,
+    "question_text": "Use all to write a function 'count_ascending_rows' that takes a list of rows (lists of numbers) and returns how many rows are in strictly increasing order (each number bigger than the one before it). A row with 0 or 1 numbers counts. Example: [[1, 2, 3], [3, 3], [5]] -> 2.",
+    "function_name": "count_ascending_rows",
+    "function_signature": "def count_ascending_rows(table):",
+    "reference_solution": "def count_ascending_rows(table):\n    count = 0\n    for row in table:\n        if all(row[i] < row[i + 1] for i in range(len(row) - 1)):\n            count += 1\n    return count",
+    "test_inputs": [
+      [
+        [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            3,
+            3
+          ],
+          [
+            5
+          ]
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          []
+        ]
+      ],
+      [
+        [
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            1
+          ]
+        ]
+      ],
+      [
+        [
+          [
+            -5,
+            -1,
+            0,
+            9
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            3,
+            2
+          ]
+        ]
+      ]
+    ],
+    "hint": "all(...) is True for an empty group, which is what you want for rows with fewer than two numbers. Compare row[i] with row[i + 1].",
+    "expected_outputs": [
+      2,
+      0,
+      1,
+      0,
+      2
+    ]
+  },
+  {
+    "id": "all-05",
+    "target_function": "all",
+    "difficulty": 3,
+    "question_text": "Use all to write a function 'balanced_brackets' that takes a text. The text may contain only the characters ( ) [ ] { }: if it has any other character, return False. Otherwise return True when every bracket is closed by the right kind of bracket in the right order. An empty text is balanced. Example: '([]{})' -> True, '(]' -> False.",
+    "function_name": "balanced_brackets",
+    "function_signature": "def balanced_brackets(text):",
+    "reference_solution": "def balanced_brackets(text):\n    if not all(ch in \"()[]{}\" for ch in text):\n        return False\n    pairs = {\")\": \"(\", \"]\": \"[\", \"}\": \"{\"}\n    stack = []\n    for ch in text:\n        if ch in pairs:\n            if not stack or stack.pop() != pairs[ch]:\n                return False\n        else:\n            stack.append(ch)\n    return not stack",
+    "test_inputs": [
+      [
+        "([]{})"
+      ],
+      [
+        "(]"
+      ],
+      [
+        ""
+      ],
+      [
+        "(()"
+      ],
+      [
+        "a()"
+      ],
+      [
+        "]["
+      ]
+    ],
+    "hint": "Use a stack: push an opening bracket, and when you see a closing one pop and compare. At the end the stack must be empty.",
+    "expected_outputs": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  {
+    "id": "reversed-03",
+    "target_function": "reversed",
+    "difficulty": 2,
+    "question_text": "Use reversed to write a function 'palindromes' that takes a list of words and returns the words that read the same forwards and backwards, ignoring upper and lower case. Keep the original spelling and order. Example: ['Level', 'tree', 'Noon'] -> ['Level', 'Noon'].",
+    "function_name": "palindromes",
+    "function_signature": "def palindromes(words):",
+    "reference_solution": "def palindromes(words):\n    result = []\n    for word in words:\n        lower = word.lower()\n        if list(lower) == list(reversed(lower)):\n            result.append(word)\n    return result",
+    "test_inputs": [
+      [
+        [
+          "Level",
+          "tree",
+          "Noon"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          "a",
+          "ab",
+          ""
+        ]
+      ],
+      [
+        [
+          "Anna",
+          "anNa",
+          "annb"
+        ]
+      ],
+      [
+        [
+          "xyz"
+        ]
+      ]
+    ],
+    "hint": "reversed gives an iterator, so turn it into a list (or join it) before you compare.",
+    "expected_outputs": [
+      [
+        "Level",
+        "Noon"
+      ],
+      [],
+      [
+        "a",
+        ""
+      ],
+      [
+        "Anna",
+        "anNa"
+      ],
+      []
+    ]
+  },
+  {
+    "id": "reversed-04",
+    "target_function": "reversed",
+    "difficulty": 3,
+    "question_text": "Use reversed to write a function 'days_until_warmer' that takes a list of daily temperatures. For each day return how many days you must wait until a warmer day. If no later day is warmer, the answer for that day is 0. Example: [20, 18, 25, 22, 19] -> [2, 1, 0, 0, 0].",
+    "function_name": "days_until_warmer",
+    "function_signature": "def days_until_warmer(temps):",
+    "reference_solution": "def days_until_warmer(temps):\n    answer = [0] * len(temps)\n    stack = []\n    for i in reversed(range(len(temps))):\n        while stack and temps[stack[-1]] <= temps[i]:\n            stack.pop()\n        if stack:\n            answer[i] = stack[-1] - i\n        stack.append(i)\n    return answer",
+    "test_inputs": [
+      [
+        [
+          20,
+          18,
+          25,
+          22,
+          19
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          30
+        ]
+      ],
+      [
+        [
+          10,
+          20,
+          30,
+          40
+        ]
+      ],
+      [
+        [
+          40,
+          30,
+          20,
+          10
+        ]
+      ],
+      [
+        [
+          5,
+          5,
+          5
+        ]
+      ]
+    ],
+    "hint": "Walk the days from the last to the first with reversed(range(...)). Keep a stack of positions of days that are still candidates for 'the next warmer day'.",
+    "expected_outputs": [
+      [
+        2,
+        1,
+        0,
+        0,
+        0
+      ],
+      [],
+      [
+        0
+      ],
+      [
+        1,
+        1,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ]
+    ]
+  },
+  {
+    "id": "abs-03",
+    "target_function": "abs",
+    "difficulty": 3,
+    "question_text": "Use abs to write a function 'closest_sum' that takes a list of numbers and a target. Look at the sum of every pair of two different items (by position) and return the sum that is closest to the target. If two sums are equally close, return the one you find first when you go through the pairs in order. If there are fewer than two numbers, return None. Example: [1, 4, 8], 10 -> 9.",
+    "function_name": "closest_sum",
+    "function_signature": "def closest_sum(nums, target):",
+    "reference_solution": "def closest_sum(nums, target):\n    best = None\n    for i in range(len(nums)):\n        for j in range(i + 1, len(nums)):\n            total = nums[i] + nums[j]\n            if best is None or abs(total - target) < abs(best - target):\n                best = total\n    return best",
+    "test_inputs": [
+      [
+        [
+          1,
+          4,
+          8
+        ],
+        10
+      ],
+      [
+        [],
+        5
+      ],
+      [
+        [
+          3
+        ],
+        3
+      ],
+      [
+        [
+          2,
+          4,
+          6
+        ],
+        7
+      ],
+      [
+        [
+          -5,
+          5,
+          10
+        ],
+        0
+      ],
+      [
+        [
+          1,
+          9,
+          5,
+          5
+        ],
+        10
+      ]
+    ],
+    "hint": "abs(total - target) is the distance. Only replace the best sum when the new distance is strictly smaller.",
+    "expected_outputs": [
+      9,
+      null,
+      null,
+      6,
+      0,
+      10
+    ]
+  },
+  {
+    "id": "abs-04",
+    "target_function": "abs",
+    "difficulty": 2,
+    "question_text": "Use abs to write a function 'big_swings' that takes a list of daily temperatures and a limit. Return how many times the temperature changed by more than the limit from one day to the next, up or down. Example: [20, 28, 27, 15], 5 -> 2.",
+    "function_name": "big_swings",
+    "function_signature": "def big_swings(temps, limit):",
+    "reference_solution": "def big_swings(temps, limit):\n    count = 0\n    for i in range(1, len(temps)):\n        if abs(temps[i] - temps[i - 1]) > limit:\n            count += 1\n    return count",
+    "test_inputs": [
+      [
+        [
+          20,
+          28,
+          27,
+          15
+        ],
+        5
+      ],
+      [
+        [],
+        3
+      ],
+      [
+        [
+          7
+        ],
+        0
+      ],
+      [
+        [
+          1,
+          2,
+          3
+        ],
+        1
+      ],
+      [
+        [
+          10,
+          0,
+          10,
+          0
+        ],
+        9
+      ],
+      [
+        [
+          -5,
+          5
+        ],
+        9
+      ]
+    ],
+    "hint": "Compare each day with the day before it, so start at position 1. A change of exactly the limit does not count.",
+    "expected_outputs": [
+      2,
+      0,
+      0,
+      0,
+      3,
+      1
+    ]
+  },
+  {
+    "id": "divmod-04",
+    "target_function": "divmod",
+    "difficulty": 2,
+    "question_text": "Use divmod to write a function 'duration_text' that takes a number of seconds and returns a text with hours, minutes and seconds like '1h 2min 5s'. Leave out the parts that are 0. For 0 seconds return '0s'. Example: 3725 -> '1h 2min 5s', 120 -> '2min'.",
+    "function_name": "duration_text",
+    "function_signature": "def duration_text(seconds):",
+    "reference_solution": "def duration_text(seconds):\n    minutes, secs = divmod(seconds, 60)\n    hours, minutes = divmod(minutes, 60)\n    parts = []\n    for value, unit in [[hours, \"h\"], [minutes, \"min\"], [secs, \"s\"]]:\n        if value > 0:\n            parts.append(f\"{value}{unit}\")\n    if not parts:\n        return \"0s\"\n    return \" \".join(parts)",
+    "test_inputs": [
+      [
+        3725
+      ],
+      [
+        120
+      ],
+      [
+        0
+      ],
+      [
+        59
+      ],
+      [
+        3600
+      ],
+      [
+        86399
+      ]
+    ],
+    "hint": "divmod(seconds, 60) gives minutes and the seconds that are left. Do it again with the minutes to get hours.",
+    "expected_outputs": [
+      "1h 2min 5s",
+      "2min",
+      "0s",
+      "59s",
+      "1h",
+      "23h 59min 59s"
+    ]
+  },
+  {
+    "id": "divmod-05",
+    "target_function": "divmod",
+    "difficulty": 3,
+    "question_text": "Use divmod to write a function 'make_change' that takes an amount of money (a whole number) and a list of coin values. Use the biggest coin as often as possible, then the next biggest, and so on. Return a list of [coin, how_many] lists for the coins you used, biggest coin first. If some money is left that no coin can make, return []. Example: 68, [1, 5, 10, 25] -> [[25, 2], [10, 1], [5, 1], [1, 3]].",
+    "function_name": "make_change",
+    "function_signature": "def make_change(amount, coins):",
+    "reference_solution": "def make_change(amount, coins):\n    counts = {}\n    for coin in sorted(coins, key=lambda c: -c):\n        count, amount = divmod(amount, coin)\n        if count > 0:\n            counts[coin] = count\n    if amount != 0:\n        return []\n    return [[coin, counts[coin]] for coin in counts]",
+    "test_inputs": [
+      [
+        68,
+        [
+          1,
+          5,
+          10,
+          25
+        ]
+      ],
+      [
+        0,
+        [
+          1,
+          5
+        ]
+      ],
+      [
+        7,
+        [
+          5,
+          2
+        ]
+      ],
+      [
+        7,
+        [
+          5
+        ]
+      ],
+      [
+        100,
+        [
+          50,
+          20,
+          10
+        ]
+      ],
+      [
+        30,
+        [
+          10,
+          25,
+          5
+        ]
+      ]
+    ],
+    "hint": "Go through the coins from big to small. divmod(amount, coin) tells how many coins fit and how much is left. A dict keeps the order in which you add the coins.",
+    "expected_outputs": [
+      [
+        [
+          25,
+          2
+        ],
+        [
+          10,
+          1
+        ],
+        [
+          5,
+          1
+        ],
+        [
+          1,
+          3
+        ]
+      ],
+      [],
+      [
+        [
+          5,
+          1
+        ],
+        [
+          2,
+          1
+        ]
+      ],
+      [],
+      [
+        [
+          50,
+          2
+        ]
+      ],
+      [
+        [
+          25,
+          1
+        ],
+        [
+          5,
+          1
+        ]
+      ]
+    ]
+  },
+  {
+    "id": "round-04",
+    "target_function": "round",
+    "difficulty": 2,
+    "question_text": "Use round to write a function 'nearest_ten' that takes a list of prices (whole numbers) and returns a list with each price rounded to the nearest 10 (use round with -1 digits). A rounded price below 10 is raised to 10, the minimum charge. Example: [14, 26, 3, 47] -> [10, 30, 10, 50].",
+    "function_name": "nearest_ten",
+    "function_signature": "def nearest_ten(prices):",
+    "reference_solution": "def nearest_ten(prices):\n    result = []\n    for price in prices:\n        rounded = round(price, -1)\n        if rounded < 10:\n            rounded = 10\n        result.append(rounded)\n    return result",
+    "test_inputs": [
+      [
+        [
+          14,
+          26,
+          3,
+          47
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          0
+        ]
+      ],
+      [
+        [
+          99,
+          101,
+          12
+        ]
+      ],
+      [
+        [
+          8,
+          11,
+          13
+        ]
+      ]
+    ],
+    "hint": "round(price, -1) rounds to tens. After rounding, check if the result is smaller than 10.",
+    "expected_outputs": [
+      [
+        10,
+        30,
+        10,
+        50
+      ],
+      [],
+      [
+        10
+      ],
+      [
+        100,
+        100,
+        10
+      ],
+      [
+        10,
+        10,
+        10
+      ]
+    ]
+  },
+  {
+    "id": "round-05",
+    "target_function": "round",
+    "difficulty": 3,
+    "question_text": "Use round to write a function 'bucket_counts' that takes a list of whole numbers. Ignore negative numbers. Round each of the others to the nearest 10 (round with -1 digits) and count how many numbers fall into each rounded value. Return a list of [rounded_value, count] lists with the rounded values from small to big. Example: [12, 14, 31, -4, 29] -> [[10, 2], [30, 2]].",
+    "function_name": "bucket_counts",
+    "function_signature": "def bucket_counts(values):",
+    "reference_solution": "def bucket_counts(values):\n    counts = {}\n    for v in values:\n        if v < 0:\n            continue\n        bucket = round(v, -1)\n        counts[bucket] = counts.get(bucket, 0) + 1\n    return [[bucket, counts[bucket]] for bucket in sorted(counts)]",
+    "test_inputs": [
+      [
+        [
+          12,
+          14,
+          31,
+          -4,
+          29
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          -1,
+          -2
+        ]
+      ],
+      [
+        [
+          0,
+          1,
+          2,
+          3
+        ]
+      ],
+      [
+        [
+          16,
+          17,
+          18,
+          24,
+          26
+        ]
+      ],
+      [
+        [
+          99,
+          100,
+          101
+        ]
+      ]
+    ],
+    "hint": "A dict can count: counts[bucket] = counts.get(bucket, 0) + 1. Sort the bucket values at the end.",
+    "expected_outputs": [
+      [
+        [
+          10,
+          2
+        ],
+        [
+          30,
+          2
+        ]
+      ],
+      [],
+      [],
+      [
+        [
+          0,
+          4
+        ]
+      ],
+      [
+        [
+          20,
+          4
+        ],
+        [
+          30,
+          1
+        ]
+      ],
+      [
+        [
+          100,
+          3
+        ]
+      ]
+    ]
+  },
+  {
+    "id": "isinstance-04",
+    "target_function": "isinstance",
+    "difficulty": 2,
+    "question_text": "Use isinstance to write a function 'count_kinds' that takes a list of values and returns a list of three counts: [numbers, texts, others]. Numbers are ints and floats, but True and False are not numbers: they count as others. Texts are strings. Example: [1, 'a', 2.5, True, None] -> [2, 1, 2].",
+    "function_name": "count_kinds",
+    "function_signature": "def count_kinds(values):",
+    "reference_solution": "def count_kinds(values):\n    numbers = 0\n    texts = 0\n    others = 0\n    for v in values:\n        if isinstance(v, bool):\n            others += 1\n        elif isinstance(v, (int, float)):\n            numbers += 1\n        elif isinstance(v, str):\n            texts += 1\n        else:\n            others += 1\n    return [numbers, texts, others]",
+    "test_inputs": [
+      [
+        [
+          1,
+          "a",
+          2.5,
+          true,
+          null
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          false,
+          false
+        ]
+      ],
+      [
+        [
+          "x",
+          "y",
+          "z"
+        ]
+      ],
+      [
+        [
+          0,
+          0.0,
+          -3
+        ]
+      ],
+      [
+        [
+          [
+            1
+          ],
+          "a",
+          {}
+        ]
+      ]
+    ],
+    "hint": "bool is a kind of int in Python, so test for bool before you test for int.",
+    "expected_outputs": [
+      [
+        2,
+        1,
+        2
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        2
+      ],
+      [
+        0,
+        3,
+        0
+      ],
+      [
+        3,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        2
+      ]
+    ]
+  },
+  {
+    "id": "isinstance-05",
+    "target_function": "isinstance",
+    "difficulty": 3,
+    "question_text": "Use isinstance to write a function 'collect_strings' that takes a list that may contain strings, numbers and other lists (nested to any depth). Return a list of the different strings found anywhere inside, without repeats, shortest first. Strings of the same length go in alphabetical order. Example: ['bb', ['a', 3, ['bb', 'ccc']], 'a'] -> ['a', 'bb', 'ccc'].",
+    "function_name": "collect_strings",
+    "function_signature": "def collect_strings(data):",
+    "reference_solution": "def collect_strings(data):\n    found = []\n    for item in data:\n        if isinstance(item, str):\n            found.append(item)\n        elif isinstance(item, list):\n            found.extend(collect_strings(item))\n    return sorted(set(found), key=lambda s: (len(s), s))",
+    "test_inputs": [
+      [
+        [
+          "bb",
+          [
+            "a",
+            3,
+            [
+              "bb",
+              "ccc"
+            ]
+          ],
+          "a"
+        ]
+      ],
+      [
+        []
+      ],
+      [
+        [
+          [],
+          [
+            []
+          ]
+        ]
+      ],
+      [
+        [
+          1,
+          2.5,
+          null
+        ]
+      ],
+      [
+        [
+          "b",
+          "a",
+          "c",
+          "a"
+        ]
+      ],
+      [
+        [
+          [
+            "zz",
+            [
+              "y",
+              [
+                "xx",
+                [
+                  "w"
+                ]
+              ]
+            ]
+          ]
+        ]
+      ]
+    ],
+    "hint": "When the item is a list, call your own function on it (recursion) and add what it returns. set removes repeats; sorted with a key can sort by (length, text).",
+    "expected_outputs": [
+      [
+        "a",
+        "bb",
+        "ccc"
+      ],
+      [],
+      [],
+      [],
+      [
+        "a",
+        "b",
+        "c"
+      ],
+      [
+        "w",
+        "y",
+        "xx",
+        "zz"
+      ]
+    ]
   }
 ]

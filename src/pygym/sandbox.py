@@ -188,9 +188,16 @@ def _sb(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def macos_profile(root: str, python_dirs: Iterable[str]) -> str:
+def macos_profile(root: str, python_dirs: Iterable[str],
+                  executables: Iterable[str] = ()) -> str:
     """sandbox-exec profile: everything allowed except writes outside <root>, the network
-    (localhost is fine) and starting programs other than Python itself. Untested on macOS."""
+    (localhost is fine) and starting programs other than Python itself. Untested on macOS.
+
+    `executables` are the interpreter's own file paths (sys.executable and its real path). They
+    are needed besides the folders in `python_dirs` when the interpreter lives outside its
+    prefix: Apple's Python 3.9 (Xcode Command Line Tools) runs /Library/Developer/CommandLineTools
+    /usr/bin/python3, while its prefix is .../Library/Frameworks/Python3.framework/Versions/3.9.
+    A `literal` allows exactly that file, not the other programs next to it."""
     roots = sorted({root, os.path.realpath(root)})
     lines = [
         "(version 1)",
@@ -204,6 +211,7 @@ def macos_profile(root: str, python_dirs: Iterable[str]) -> str:
         "(deny process-fork)",
         "(deny process-exec)",
         *[f"(allow process-exec (subpath {_sb(p)}))" for p in sorted(set(python_dirs))],
+        *[f"(allow process-exec (literal {_sb(p)}))" for p in sorted(set(executables))],
     ]
     return "\n".join(lines) + "\n"
 
@@ -216,7 +224,8 @@ def command(lv: str, root: str, program: List[str]) -> List[str]:
     if lv == "sandbox-exec":
         dirs = {sys.prefix, sys.base_prefix, os.path.realpath(sys.prefix),
                 os.path.realpath(sys.base_prefix)}
-        return ["sandbox-exec", "-p", macos_profile(root, dirs)] + list(program)
+        exes = {python(), os.path.realpath(python())}
+        return ["sandbox-exec", "-p", macos_profile(root, dirs, exes)] + list(program)
     return list(program)
 
 
