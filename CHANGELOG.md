@@ -16,6 +16,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   Python 3.9 (stdlib only, runs on any Python).
 - `tools/real_machine_check.py` and `tools/notebook_check.ipynb`: self-reporting checks to run on
   Windows, macOS, Python 3.9 and in a browser notebook.
+### Changed
+- Notebook front-end: under every exercise a line says that the answer goes in a NEW cell that
+  starts with `%%pygym :w` (the output has no input box; a student on Colab looked for one).
 ### Fixed
 - Windows editor: typing the letter "à" (or pasting text with it) made the editor wait for another
   key and drop it, because `msvcrt.getwch()` returns the same "\xe0" for "à" and for the prefix

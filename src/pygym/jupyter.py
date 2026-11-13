@@ -35,6 +35,8 @@ _active = None  # the Session the magics talk to (None = no exercise running)
 INSTRUCTIONS = ("Write your function in a new cell that starts with  %%pygym :w   "
                 "(other commands: %pygym :out, %pygym :h, %pygym :help, %pygym :solution, "
                 "%pygym :s, %pygym :level, %%pygym :wq, %pygym :q)")
+# Shown under every exercise: the notebook has no input box in the output, the answer is a NEW cell.
+ANSWER_HERE = "→ Your answer goes in a NEW cell below this one. Start that cell with  %%pygym :w"
 PROGRESS_WIDTH = 72  # characters of the progress line while the AI writes an exercise
 NO_SESSION = 'No active exercise. Run exercise("zip") first.'
 
@@ -97,6 +99,8 @@ def start(session, ip=None) -> None:
     question = getattr(session, "question", lambda: None)()
     if question is not None:  # started at level 3 with a function too small for it
         _obey(console, session, question)
+    else:
+        console.print(Text(ANSWER_HERE, style=style.PALETTE["command"]))
 
 
 def _wait(job, refresh: float = 0.25) -> None:
@@ -179,6 +183,7 @@ def _obey(console, session, resp) -> bool:
             console.print(style.solution(session.solution()))
     if resp.clear_code:
         console.print(style.exercise_view(session))
+        console.print(Text(ANSWER_HERE, style=style.PALETTE["command"]))
     if resp.quit:
         console.print(Text("Session ended.", style=style.PALETTE["muted"]))
         return True
