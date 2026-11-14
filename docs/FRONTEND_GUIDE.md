@@ -709,7 +709,10 @@ How it works:
   above the verdict line, also when it passes; `%pygym :out` prints the last one again.
 - Everything is printed with Rich, using the same panels as the line CLI (`src/pygym/style.py`):
   in a notebook Rich shows them as HTML, in a plain IPython shell as text. `exercise()` prints
-  an intro panel with the `%%pygym` instructions and an example cell, then the exercise panel.
+  an intro panel with the `%%pygym` instructions and an example cell, then the exercise panel,
+  then one line (`jupyter.ANSWER_HERE`) saying that the answer goes in a NEW cell: the output has
+  no input box, and a first-time student on Colab looked for one. The line is printed again under
+  every new exercise (after `:s` or a level change), not after a failed check.
 - Hints and docs are panels, `Solution:` is followed by the highlighted code, one-line answers
   get an icon (`✓ Passed! ...`, `✗ Failed: ...`, `! ...`). If `ask_reveal` is set it asks
   `Reveal the solution? [y/N]` with `input()`; if `ask_bigger` is set it asks

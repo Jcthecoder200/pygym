@@ -4,6 +4,11 @@ All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Tests
+- The suite now runs on Windows. Found by running it on Windows 10/11 with Python 3.9: tests that assumed Linux
+  (the Windows default front-end is tk, bwrap paths, symlink rights, a memory limit that Windows does not have
+  yet, a Python path with a space in the pip hint) are platform-aware, and Rich is not treated as a legacy
+  Windows console under pytest's output capture.
 ### Added
 - **34 more hand-written exercises** (83 in total): an intermediate and an advanced one for each
   of the 17 built-ins (`reversed` and `abs` get levels 2-3 / 2-3 too). They all follow the level
@@ -12,11 +17,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   `<`, a changed constant, `and` -> `or`, a dropped `reverse=True`) fails at least one test.
   Because they follow the level rules they are also valid prompt examples: the example pool for
   AI mode grew from 14 to 48 presets (level 2: 3 -> 20, level 3: 1 -> 18).
+- `ui.run_tk(session, _driver=...)`: a hook that lets a test (or `real_machine_check.py --tk`) drive the
+  tkinter popup. It had no test at all; now its logic does, against a stand-in for tkinter.
 - `tools/check_py39.py`: static check that the code and the exercise solutions still run on
   Python 3.9 (stdlib only, runs on any Python).
 - `tools/real_machine_check.py` and `tools/notebook_check.ipynb`: self-reporting checks to run on
   Windows, macOS, Python 3.9 and in a browser notebook.
+### Changed
+- Notebook front-end: under every exercise a line says that the answer goes in a NEW cell that
+  starts with `%%pygym :w` (the output has no input box; a student on Colab looked for one).
 ### Fixed
+- Redirected output on Windows (a pipe, `> file`, an IDE output window) uses the ANSI code page (cp1252, or
+  cp950 on Traditional Chinese Windows), which cannot show `●` or `✗`: `python -m pygym` crashed with
+  UnicodeEncodeError on its first screen. The CLI now replaces what it cannot show.
+- Windows: every exercise that used urllib/requests got a spurious `(pygym blocked: winreg.OpenKey ...)` note,
+  because urllib looks for proxy settings in the registry and the sandbox refuses that. The sandbox
+  environment now says `NO_PROXY=*`, so the registry is never consulted.
+- Editor: the cursor was drawn by character count, not by screen cells, so after typing double-width
+  characters (中文) in a line it sat two cells inside the text. It now uses the cell width
+  (also on the `:` command line).
 - Windows editor: typing the letter "à" (or pasting text with it) made the editor wait for another
   key and drop it, because `msvcrt.getwch()` returns the same "\xe0" for "à" and for the prefix
   of every arrow key, and `kbhit()` cannot tell them apart (measured on Windows 11). The editor now

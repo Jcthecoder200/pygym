@@ -11,6 +11,8 @@ import urllib.request
 from decimal import Decimal
 from fractions import Fraction
 
+import os
+
 import pytest
 from rich.console import Console
 
@@ -63,7 +65,10 @@ def test_not_installed_library_gets_a_pip_hint(monkeypatch):
     with pytest.raises(UnknownTarget) as e:
         resolve("numpy.cumsum")
     assert "'numpy' is not installed in this Python" in str(e.value)
-    assert f"{sandbox.python()} -m pip install numpy" in str(e.value)
+    import shlex
+    import subprocess
+    python = subprocess.list2cmdline([sandbox.python()]) if os.name == "nt" else shlex.quote(sandbox.python())
+    assert f"{python} -m pip install numpy" in str(e.value)    # quoted when the path has a space
     with pytest.raises(UnknownTarget, match="no library called 'nosuchlib_xyz'"):
         resolve("nosuchlib_xyz.f")
     assert sandbox.install_hint("yaml").endswith("-m pip install pyyaml")

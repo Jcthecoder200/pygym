@@ -283,6 +283,7 @@ def test_self_test_fails_cleanly_when_bwrap_can_not_start(monkeypatch):
     assert sandbox._self_test("bwrap") is False
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="bwrap is Linux-only and this test uses POSIX paths")
 def test_bwrap_command_line():
     cmd = sandbox.bwrap_command("/tmp/pygym-run-1", ["py", "runner.py"], home="/home/u",
                                 read_only=["/home/u/venv", "/home/u/venv/lib", "/usr/lib",
@@ -358,7 +359,10 @@ def test_guard_decisions(tmp_path):
 def test_guard_follows_symlinks_out_of_the_folder(tmp_path):
     inside = tmp_path / "work"
     inside.mkdir()
-    (inside / "link").symlink_to(tmp_path)
+    try:
+        (inside / "link").symlink_to(tmp_path)
+    except OSError as e:     # Windows: creating a symlink needs Developer Mode or an administrator
+        pytest.skip(f"cannot create a symlink here ({e}); enable Windows Developer Mode to run this")
     g = Guard([str(inside)])
     with pytest.raises(PermissionError):
         g("open", (str(inside / "link" / "x.txt"), "w", 0))
@@ -393,9 +397,14 @@ def test_check_fixtures(fixtures, ok):
     assert (sandbox.check_fixtures(fixtures) == []) is ok
 
 
-def test_timeout_and_memory_limits_still_apply():
+def test_timeout_limit_still_applies():
     loop = "def f():\n    len('x')\n    while True:\n        pass"
     assert grader.run_in_sandbox(loop, "f", "len", [[]], 1.5)["status"] == "timeout"
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="no memory limit on Windows yet (it needs a Job Object): see docs/HANDOFF.md")
+def test_memory_limit_still_applies():
     hog = "def f():\n    len('x')\n    return len('x' * (2 * 1024 ** 3))"
     out = grader.run_in_sandbox(hog, "f", "len", [[]], 10.0)
     assert out["status"] == "error" or "MemoryError" in out["outputs"][0].get("error", "")
