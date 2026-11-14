@@ -5,6 +5,7 @@
     python tools/real_machine_check.py --keys     # Windows: what msvcrt.getwch() returns per key
     python tools/real_machine_check.py --keys2    # Windows: raw console events (ReadConsoleInputW)
     python tools/real_machine_check.py --keys3    # Windows: what the EDITOR's input layer makes of keys
+    python tools/real_machine_check.py --tk       # any OS with a display: drives the REAL tkinter popup
 
 Every line starts with PASS, FAIL, INFO or SKIP. The script changes nothing outside a temporary
 folder (the macOS probes try to write OUTSIDE the sandbox on purpose, but only next to the
@@ -408,11 +409,75 @@ def editor_keys_probe():
             return
 
 
+def tk_smoke():
+    """Opens the real tkinter popup for about a second and drives it like a student would."""
+    try:
+        import tkinter  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        report("FAIL", "tkinter imports", f"{type(e).__name__}: {e}")
+        return
+    from pygym import ui
+    from pygym.session import Session
+    session = Session("zip", 1)
+    ex = session.exercise
+    seen = {}
+
+    def driver(root, box, status, buttons):
+        try:
+            def put(text):
+                box.delete("1.0", "end")
+                box.insert("1.0", text)
+
+            def press(name):
+                buttons[name].invoke()
+                root.update()
+
+            root.update()
+            try:
+                seen["size"] = f"{root.winfo_width()}x{root.winfo_height()} px, scale {root.winfo_fpixels('1i'):.0f} dpi"
+            except Exception:  # noqa: BLE001
+                seen["size"] = "unknown"
+            put(ex.function_signature + "\n    return None\n")
+            press("Submit")
+            seen["wrong"] = (status.cget("text"), status.cget("fg"))
+            put(ex.reference_solution + "\n# 中文 à é\n")        # non-ASCII in the code (Windows code pages)
+            press("Submit")
+            seen["right"] = (status.cget("text"), status.cget("fg"))
+            press("Hint")
+            seen["hint"] = status.cget("text")
+            press("Show solution")
+            seen["solution"] = box.get("1.0", "end")
+            press("Skip")
+            seen["skip"] = "ok"
+        except Exception as e:  # noqa: BLE001
+            seen["error"] = f"{type(e).__name__}: {e}"
+        finally:
+            root.destroy()
+
+    try:
+        ui.run_tk(session, _driver=driver)
+    except Exception as e:  # noqa: BLE001
+        report("FAIL", "the tkinter window opens", f"{type(e).__name__}: {e}")
+        return
+    report("PASS" if "error" not in seen else "FAIL", "the tkinter window opens and runs", seen.get("error", ""))
+    report("INFO", "tkinter window", seen.get("size", "?"))
+    wrong, right = seen.get("wrong", ("", "")), seen.get("right", ("", ""))
+    check("tk: a wrong answer shows 'Failed.' in red", wrong[0].startswith("Failed.") and wrong[1] == "red", str(wrong))
+    check("tk: a right answer (with 中文 à é in a comment) shows 'Passed!' in green",
+          right[0].startswith("Passed!") and right[1] == "green", str(right))
+    check("tk: Hint", seen.get("hint", "").startswith("Hint: "), seen.get("hint", ""))
+    check("tk: Show solution puts the solution in the box", "def " in seen.get("solution", ""))
+    check("tk: Skip does not crash", seen.get("skip") == "ok")
+
+
 if "--keys" in sys.argv:
     if os.name == "nt":
         key_probe()
     else:
         report("SKIP", "--keys", "Windows only")
+
+if "--tk" in sys.argv:
+    tk_smoke()
 
 if "--keys3" in sys.argv:
     if os.name == "nt":

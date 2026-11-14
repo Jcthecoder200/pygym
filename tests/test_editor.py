@@ -589,10 +589,31 @@ def test_auto_routing(monkeypatch, notebook, terminal, tk, expected):
     from pygym import editor, jupyter, ui
 
     called = []
+    monkeypatch.setattr(editor, "is_windows", lambda: False)   # on Windows the default is tk (see below)
     monkeypatch.setattr(jupyter, "in_notebook", lambda: notebook)
     monkeypatch.setattr(editor, "editor_available", lambda: terminal)
     monkeypatch.setattr(ui, "tk_available", lambda: tk)
     monkeypatch.setattr(jupyter, "start", lambda s: called.append("jupyter"))
+    monkeypatch.setattr(editor, "run_editor", lambda s: called.append("editor"))
+    monkeypatch.setattr(ui, "run_tk", lambda s: called.append("tk"))
+    monkeypatch.setattr(ui, "run_text", lambda s: called.append("text"))
+    ui.run(Session("zip", 1))
+    assert called == [expected]
+
+
+@pytest.mark.parametrize("terminal, tk, expected", [
+    (True, True, "tk"),        # the Windows default: the popup, even in a terminal
+    (True, False, "text"),     # no tkinter: plain text, the editor only runs when asked for (ui="editor")
+    (False, True, "tk"),
+])
+def test_auto_routing_on_windows(monkeypatch, terminal, tk, expected):
+    from pygym import editor, jupyter, ui
+
+    called = []
+    monkeypatch.setattr(editor, "is_windows", lambda: True)
+    monkeypatch.setattr(jupyter, "in_notebook", lambda: False)
+    monkeypatch.setattr(editor, "editor_available", lambda: terminal)
+    monkeypatch.setattr(ui, "tk_available", lambda: tk)
     monkeypatch.setattr(editor, "run_editor", lambda s: called.append("editor"))
     monkeypatch.setattr(ui, "run_tk", lambda s: called.append("tk"))
     monkeypatch.setattr(ui, "run_text", lambda s: called.append("text"))

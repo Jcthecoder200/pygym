@@ -25,6 +25,14 @@ _REAL_PREFETCH_SETTING = session_module._prefetch_setting
 
 
 @pytest.fixture(autouse=True)
+def _rich_is_not_a_legacy_windows_console(monkeypatch):
+    """Under pytest's output capture Rich (on Windows) decides it is a legacy console and draws square
+    boxes and "-" bars instead of ╭ and ━. The tests describe a modern terminal."""
+    import rich.console
+    monkeypatch.setattr(rich.console, "detect_legacy_windows", lambda: False, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("PYGYM_HOME", str(tmp_path / "pygym-home"))
     monkeypatch.setenv("PYGYM_NO_AI", "1")
