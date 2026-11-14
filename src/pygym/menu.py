@@ -672,6 +672,21 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _tolerate_any_encoding() -> None:
+    """Never crash on a character the output encoding cannot show.
+
+    A Windows console shows everything (UTF-8 console API), but redirected output (a pipe, `> file`,
+    an IDE output window) uses the ANSI code page: cp1252, or cp950 on Traditional Chinese Windows.
+    There the first screen died with UnicodeEncodeError on "●" and "✗". Unshowable characters are
+    now replaced by "?" instead.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv: Optional[Sequence[str]] = None, *, console: Optional[Console] = None,
          input_fn: Optional[Callable[[str], str]] = None,
          start_fn: Optional[Callable[[Choice, Console], int]] = None) -> int:
@@ -682,7 +697,9 @@ def main(argv: Optional[Sequence[str]] = None, *, console: Optional[Console] = N
     except SystemExit as e:  # argparse already printed the message (or --help / --version)
         code = e.code
         return code if isinstance(code, int) else (0 if code is None else 2)
-    console = console or Console()
+    if console is None:
+        _tolerate_any_encoding()
+        console = Console()
     start_fn = start_fn or _starter(input_fn)
     settings = config.load()
     muted = style.PALETTE["muted"]

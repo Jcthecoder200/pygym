@@ -230,7 +230,13 @@ def command(lv: str, root: str, program: List[str]) -> List[str]:
 
 
 def child_env() -> Dict[str, str]:
-    return {k: v for k, v in os.environ.items() if k.upper() in KEEP_ENV}
+    env = {k: v for k, v in os.environ.items() if k.upper() in KEEP_ENV}
+    # Exercises only ever talk to the local fixture server, never through a proxy. Saying so also stops
+    # urllib/requests on Windows from looking for proxy settings in the registry: that lookup is
+    # refused by the audit hook ("winreg.OpenKey"), harmless to the answer but it used to leave a
+    # "(pygym blocked: ...)" note on the verdict of every HTTP exercise (seen on Windows 10/11).
+    env["NO_PROXY"] = env["no_proxy"] = "*"
+    return env
 
 
 # ----- one run -----------------------------------------------------------------------------

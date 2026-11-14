@@ -26,6 +26,7 @@ import sys
 import textwrap
 from typing import Dict, List, Optional, Tuple
 
+from rich.cells import cell_len
 from rich.color import ColorSystem
 from rich.console import Console
 from rich.style import Style
@@ -840,7 +841,8 @@ def _editor_frame(ed: Editor, width: int, height: int, no_color: bool = False):
     status_row = _status_line(label, ed.session.exercise.id, f"{b.row + 1},{b.col + 1}", width,
                               no_color, level)
 
-    cursor = (header + (b.row - top) + 1, min(width, gutter + b.col + 1))
+    # the cursor column counts screen CELLS, not characters: 中 and other wide characters take two
+    cursor = (header + (b.row - top) + 1, min(width, gutter + cell_len(b.line[:b.col]) + 1))
     if focus:  # on the first row of the results window, like the cursor in Neovim's quickfix
         cursor = (header + body + 2, 1)
     last = width - 1  # never write the bottom-right cell (some terminals scroll)
@@ -851,13 +853,13 @@ def _editor_frame(ed: Editor, width: int, height: int, no_color: bool = False):
         line = ":" + ed.cmdline
         line = line[-last:] if len(line) > last else line
         bottom = Text(line)
-        cursor = (height, len(line) + 1)
+        cursor = (height, cell_len(line) + 1)
     elif ed.mode == PROMPT:
         if ed.message:  # keep the message visible above the question, like Neovim
             status_row = _message(ed, width)
         line = _clip(ed.prompt_text(last), last)
         bottom = Text(line, style=PALETTE["prompt"])
-        cursor = (height, len(line) + 1)
+        cursor = (height, cell_len(line) + 1)
     elif ed.mode == INSERT and not ed.message:
         bottom = Text("-- INSERT --", style=PALETTE["insert_label"])
     elif focus and not ed.message:

@@ -101,7 +101,10 @@ def run_text(session: Session, input_fn: Callable[[str], str] = input,
             return
 
 
-def run_tk(session: Session) -> None:
+def run_tk(session: Session, _driver=None) -> None:
+    """The tkinter popup. `_driver(root, box, status, buttons)` is a hook for tests and for
+    tools/real_machine_check.py --tk: it is called once, just after the window is up, and is
+    expected to end by calling root.destroy()."""
     import tkinter as tk
     from tkinter import scrolledtext
 
@@ -135,11 +138,15 @@ def run_tk(session: Session) -> None:
 
     bar = tk.Frame(root)
     bar.pack(pady=8)
+    buttons = {}
     for label, cmd in [("Submit", submit), ("Hint", hint), ("Show solution", solution),
                        ("Skip", lambda: show(session.skip()))]:
-        tk.Button(bar, text=label, command=cmd).pack(side="left", padx=4)
+        buttons[label] = tk.Button(bar, text=label, command=cmd)
+        buttons[label].pack(side="left", padx=4)
 
     show(session.exercise)
+    if _driver is not None:
+        root.after(100, lambda: _driver(root, box, status, buttons))
     root.mainloop()
 
 
