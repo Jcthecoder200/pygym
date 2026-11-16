@@ -18,7 +18,9 @@ What it covers (the parts that the Linux test run cannot):
   3. macOS: the sandbox-exec profile probed one rule at a time (real profile from pygym.sandbox);
   4. Python 3.9 and friends: compile every file with THIS interpreter, import every module,
      run tools/check_py39.py and tools/validate_exercises.py;
-  5. Windows: console ANSI mode, and (with --keys) what msvcrt.getwch() really returns.
+  5. Windows: console ANSI mode, and (with --keys) what msvcrt.getwch() really returns;
+  6. tips at your error: the tip under a script's traceback, a strict cp1252 stderr, and the
+     global hook of `pygym --tips on` (installed into a temporary folder, never the real one).
 """
 import compileall
 import importlib
@@ -317,6 +319,65 @@ else:
     if old is not None:
         editor._win_vt_mode(False, old)
     report("INFO", "editor_available()", str(editor.editor_available()))
+
+# ----- 6. tips at your error ---------------------------------------------------------------
+
+print("-" * 78 + "\n6. tips at your error (a tip under the traceback of the student's own code)")
+TIPS_TMP = Path(__import__("tempfile").mkdtemp(prefix="pygym-tips-check-"))
+TIPS_ENV = {k: v for k, v in os.environ.items() if k not in ("PYGYM_NO_TIPS", "NO_COLOR")}
+TIPS_ENV.update(PYGYM_HOME=str(TIPS_TMP / "home"), PYGYM_NO_AI="1", IPYTHONDIR=str(TIPS_TMP / "ipython"),
+                PYGYM_TIPS_SITE_DIR=str(TIPS_TMP / "site"), PYTHONPATH=str(ROOT / "src"))
+TIPS_STUDENT = "names = ['Ana', 'Bo']\npairs = list(zip(names, 5))\n"
+
+
+def _tips_run(args, **extra):
+    env = dict(TIPS_ENV, **extra)
+    return subprocess.run([sys.executable] + args, capture_output=True, text=True, timeout=120,
+                          cwd=str(TIPS_TMP), env=env)
+
+
+@guarded("tips: script")
+def _():
+    script = TIPS_TMP / "student.py"
+    script.write_text("import pygym\n" + TIPS_STUDENT, encoding="utf-8")
+    p = _tips_run([str(script)])
+    last = (p.stderr.strip().splitlines() or [""])[-1]
+    check("a script with import pygym: traceback, then the tip on the last line",
+          "Traceback" in p.stderr and last.startswith("pygym: this line uses zip(); 30-second exercise? "),
+          p.stderr[-400:])
+    report("INFO", "the command it suggests", last.split("? ", 1)[-1].split("  (turn off")[0])
+    # redirected output in a code page that can not show everything (Windows: cp1252 / cp950)
+    p = _tips_run([str(script)], PYTHONIOENCODING="cp1252:strict")
+    check("the tip survives a strict cp1252 stderr", "pygym: this line uses zip()" in p.stderr
+          and "Error in sys.excepthook" not in p.stderr, p.stderr[-400:])
+
+
+@guarded("tips: global hook")
+def _():
+    p = _tips_run(["-m", "pygym", "--tips", "on"])
+    pth = TIPS_TMP / "site" / "pygym_tips.pth"
+    check("pygym --tips on writes the .pth (temporary folder here)", p.returncode == 0 and pth.exists(),
+          (p.stdout + p.stderr)[-400:])
+    script = TIPS_TMP / "student_global.py"
+    script.write_text("import site, sys\nsite.addsitedir(%r)\nprint('pygym imported:', 'pygym' in sys.modules)\n"
+                      % str(TIPS_TMP / "site") + TIPS_STUDENT, encoding="utf-8")
+    p = _tips_run([str(script)])
+    check("the global hook shows the tip WITHOUT import pygym",
+          "pygym imported: False" in p.stdout and "pygym: this line uses zip()" in p.stderr, p.stderr[-400:])
+    p = _tips_run([str(script)], PYGYM_NO_TIPS="1")
+    check("...and never in pygym's sandbox processes (PYGYM_NO_TIPS)", "pygym:" not in p.stderr, p.stderr[-400:])
+    p = _tips_run(["-m", "pygym", "--tips", "off"])
+    check("pygym --tips off removes it", p.returncode == 0 and not pth.exists(), (p.stdout + p.stderr)[-400:])
+
+
+@guarded("tips: console")
+def _():
+    from pygym import tips
+    report("INFO", "tips in colour on this stderr", f"{tips._colour(sys.stderr)} (stderr is a terminal: "
+           f"{sys.stderr.isatty()}, NO_COLOR={os.environ.get('NO_COLOR', '')!r})")
+    report("INFO", "REPL by hand", "python -q, then: import pygym  and  list(zip([1], 5))  -> expect the "
+           "traceback, then 'pygym: this line uses zip(); ... pygym.exercise('zip')'. Same in IDLE's shell.")
+    __import__("shutil").rmtree(TIPS_TMP, ignore_errors=True)
 
 
 def key_probe():

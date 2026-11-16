@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
 import random
-from importlib import resources
 from typing import List, Optional, Set
 
 from .models import Exercise
@@ -13,9 +13,20 @@ class ExerciseUnavailable(Exception):
     """Raised when no exercise exists for the requested function."""
 
 
+def _dataset_text() -> str:
+    # A plain file next to this module in every normal install. Reading it directly avoids
+    # importing importlib.resources (~35 ms), which the tips under a traceback would pay.
+    path = os.path.join(os.path.dirname(__file__), "data", "exercises.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError:  # e.g. installed inside a zip file
+        from importlib import resources
+        return resources.files("pygym.data").joinpath("exercises.json").read_text(encoding="utf-8")
+
+
 def load_all() -> List[Exercise]:
-    text = resources.files("pygym.data").joinpath("exercises.json").read_text(encoding="utf-8")
-    return [Exercise.from_dict(d) for d in json.loads(text)]
+    return [Exercise.from_dict(d) for d in json.loads(_dataset_text())]
 
 
 def available_functions() -> List[str]:

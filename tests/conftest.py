@@ -24,6 +24,11 @@ _REAL_CHECK_LEVEL = levels.check_level
 _REAL_PREFETCH_SETTING = session_module._prefetch_setting
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "kernel: starts real Jupyter kernels (a few seconds); skip with -m 'not kernel'")
+
+
 @pytest.fixture(autouse=True)
 def _rich_is_not_a_legacy_windows_console(monkeypatch):
     """Under pytest's output capture Rich (on Windows) decides it is a legacy console and draws square

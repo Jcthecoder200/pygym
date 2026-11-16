@@ -1,9 +1,20 @@
 """pygym: micro-exercises for Python built-ins."""
+from . import tips
 from .loader import ExerciseUnavailable, available_functions
-from .session import Session
 
 __version__ = "0.2.2"
-__all__ = ["exercise", "available_functions", "ExerciseUnavailable", "Session"]
+__all__ = ["exercise", "available_functions", "ExerciseUnavailable", "Session", "tips"]
+
+
+def __getattr__(name):
+    # `pygym.Session` is imported on first use: the session module brings the grader and the
+    # sandbox (subprocess, tempfile, ...), which `import pygym` and the tips under a traceback
+    # do not need.
+    if name == "Session":
+        from .session import Session
+        globals()["Session"] = Session
+        return Session
+    raise AttributeError(f"module 'pygym' has no attribute {name!r}")
 
 
 def exercise(name, difficulty=None, ui="auto", mode=None):
@@ -24,6 +35,7 @@ def exercise(name, difficulty=None, ui="auto", mode=None):
       "text"     the line-by-line CLI (works everywhere, also on Windows)
     """
     from . import ui as _ui
+    from .session import Session
 
     if callable(name):
         name = getattr(name, "__name__", str(name))
@@ -33,3 +45,17 @@ def exercise(name, difficulty=None, ui="auto", mode=None):
         print(e)
         return
     _ui.run(session, ui)
+
+
+def load_ipython_extension(ipython):
+    """`%load_ext pygym`: tips under the tracebacks of this IPython session (pygym.tips)."""
+    tips.set_tips(True, shell=ipython, quiet=True)
+
+
+def unload_ipython_extension(ipython):
+    """`%unload_ext pygym`: no more tips in this session."""
+    tips.set_tips(False, shell=ipython, quiet=True)
+
+
+# Tips at your error: on for this process unless the saved setting `tips` is off.
+tips._auto()

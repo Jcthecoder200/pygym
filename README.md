@@ -30,6 +30,34 @@ hand-written exercises), `pygym --status` (settings, AI and sandbox status), `py
 
 ![the pygym main menu](https://raw.githubusercontent.com/Jcthecoder200/pygym/main/docs/media/menu.svg)
 
+## Tips at your error
+
+When your own code crashes, pygym looks at the failing line. If it uses a built-in that has an
+exercise, one line appears under the normal error:
+
+```text
+TypeError: 'int' object is not iterable
+pygym: this line uses zip() and len(); 30-second exercise? exercise('zip')
+```
+
+Type that command and you are in the exercise. There is no AI and no internet here: the tip
+comes from the error itself, instantly, and it is the same every time. In AI mode, functions of
+other libraries count too (`statistics.median()`, `np.mean()`); those exercises are written by
+the local model. Methods (`df.mean()`) and your own functions are never named.
+
+| How | What it does |
+|---|---|
+| `import pygym` (or `from pygym import exercise`) | tips on for this program, notebook or shell |
+| `pygym --tips on` | tips always on, also without `import pygym` (`pygym --tips status` shows where) |
+| `pygym --tips off` | removes that, and `import pygym` no longer turns tips on |
+| `pygym.tips(False)` / `pygym.tips(True)`, `%load_ext pygym` | off / on for this session only |
+
+Tested on Linux: scripts, the Python REPL (new and classic), the IPython terminal and Jupyter
+notebooks (a real kernel). IDLE, VS Code notebooks and Colab use the same hooks, but we did not
+test them by hand. Not tested yet: Windows, macOS, Colab, the PyCharm console and Spyder.
+How it works and its limits: [docs/ERROR_TIPS.md](docs/ERROR_TIPS.md). A demo notebook:
+[docs/demo_error_tips.ipynb](docs/demo_error_tips.ipynb).
+
 ## The editor
 
 In a Linux or macOS terminal, exercises open in a small Neovim-style editor. It starts in

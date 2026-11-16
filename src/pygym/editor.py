@@ -1077,6 +1077,8 @@ def is_windows() -> bool:
 def editor_available() -> bool:
     """True when the full-screen editor can run here: a real terminal (Linux/macOS), or a Windows
     console that understands ANSI escape codes (Windows 10 and newer)."""
+    if "idlelib.run" in sys.modules:   # IDLE's shell: its files say isatty() but are no terminal
+        return False
     try:
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             return False

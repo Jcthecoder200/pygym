@@ -236,6 +236,9 @@ def child_env() -> Dict[str, str]:
     # refused by the audit hook ("winreg.OpenKey"), harmless to the answer but it used to leave a
     # "(pygym blocked: ...)" note on the verdict of every HTTP exercise (seen on Windows 10/11).
     env["NO_PROXY"] = env["no_proxy"] = "*"
+    # Never a "pygym: this line uses ..." tip from an exercise process, also when the global hook
+    # of `pygym --tips on` is in this Python's site-packages (pygym.tips checks this variable).
+    env["PYGYM_NO_TIPS"] = "1"
     return env
 
 
