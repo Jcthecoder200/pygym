@@ -6,6 +6,7 @@
     pygym --mode ai                    no function given: save this as the default and exit
     pygym --list [LIBRARY]             libraries, or the functions in one (★ = hand-checked exercises)
     pygym --status                     current settings and whether AI mode can run
+    pygym --tips on|off|status         tips under your tracebacks, always on / off (see pygym.tips)
 
 This module only chooses WHICH exercise to start. The rules inside an exercise are in `Session`,
 the windows are in `ui`, and the AI engine is in `pygym.ai`.
@@ -29,7 +30,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from . import __version__, ai, config, loader, sandbox, style, ui
+from . import __version__, ai, config, loader, sandbox, style, tips, ui
 from ._runner import denied_reason
 from .loader import ExerciseUnavailable
 # LEVELS and parse_level live in session (the :level command uses them too); kept importable here.
@@ -666,6 +667,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--list", nargs="?", const="", default=None, metavar="LIBRARY",
                    help="list the libraries, or the functions in LIBRARY (★ = has presets)")
     p.add_argument("--status", action="store_true", help="show the settings and whether AI mode is ready")
+    p.add_argument("--tips", choices=("on", "off", "status"),
+                   help="tips under your tracebacks: on = always (no import needed), off, status")
     p.add_argument("--set-mode", choices=config.MODES, metavar="MODE", help="save the default mode")
     p.add_argument("--set-model", metavar="NAME", help="save the model used by AI mode")
     p.add_argument("--version", action="version", version=f"pygym {__version__}")
@@ -718,6 +721,8 @@ def main(argv: Optional[Sequence[str]] = None, *, console: Optional[Console] = N
         _save(settings, console)
         console.print(Text(f"Saved: mode={settings.mode}, model={settings.model}", style=muted))
 
+    if args.tips:
+        return _tips_command(console, args.tips)
     if args.list is not None:
         return _print_list(console, args.list)
     if args.status:
@@ -780,7 +785,63 @@ def _print_status(console: Console, settings: config.Settings) -> None:
     table.add_row("AI", Text("ready", style=style.PALETTE["pass"]) if ready
                   else Text("not reachable (AI mode falls back to preset)", style=style.PALETTE["fail"]))
     table.add_row("sandbox", _sandbox_cell())
+    for name, value in _tips_rows():
+        table.add_row(name, value)
     console.print(table)
+
+
+def _tips_rows() -> List[Tuple[str, str]]:
+    """The tips lines of --status and --tips status."""
+    try:
+        state = tips.global_status()
+    except Exception as e:  # noqa: BLE001  (a strange site setup must not break --status)
+        return [("tips", f"unknown ({type(e).__name__}: {e})")]
+    rows = [("tips", "on (import pygym shows a tip under your tracebacks)" if state["setting"]
+             else "off (saved; pygym --tips on turns them on)")]
+    if state["pth"]:
+        rows.append(("tips hook", f"global, without import: {state['pth']}"))
+    else:
+        rows.append(("tips hook", "not global (only after import pygym; pygym --tips on: always)"))
+    if state["startup"]:
+        rows.append(("tips IPython", f"startup file {state['startup']}"))
+    return rows
+
+
+def _tips_command(console: Console, what: str) -> int:
+    """pygym --tips on / off / status. 0 done, 1 the files could not be written."""
+    muted = style.PALETTE["muted"]
+    if what == "on":
+        try:
+            done = tips.enable_global()
+        except (OSError, ValueError) as e:
+            _say(console, f"Could not turn the tips on everywhere: {e}", kind="fail")
+            return 1
+        console.print(Text("Tips at your error: on, also without `import pygym`.", style="bold"))
+        console.print(Text(f"global hook: {done['pth']}", style=muted))
+        if done["startup"]:
+            console.print(Text(f"IPython / Jupyter: {done['startup']}", style=muted))
+        for note in done["notes"]:
+            console.print(Text(note, style=muted))
+        console.print(Text("Turn off with: pygym --tips off", style=muted))
+        return 0
+    if what == "off":
+        try:
+            removed = tips.disable_global()
+        except (OSError, ValueError) as e:
+            _say(console, f"Could not turn the tips off: {e}", kind="fail")
+            return 1
+        console.print(Text("Tips at your error: off (saved; import pygym no longer turns them on).",
+                           style="bold"))
+        for path in removed:
+            console.print(Text(f"removed {path}", style=muted))
+        return 0
+    table = Table(show_header=False, box=None, padding=(0, 2, 0, 0), pad_edge=False)
+    table.add_column(style=muted)
+    table.add_column()
+    for name, value in _tips_rows():
+        table.add_row(name, value)
+    console.print(table)
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -23,6 +23,7 @@ import importlib.util
 import inspect
 import io
 import re
+import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
@@ -289,6 +290,25 @@ def target_object(info: TargetInfo):
 
 def resolve(target: str) -> TargetInfo:
     """Look the target up. Raises UnknownTarget if it doesn't exist or isn't allowed."""
+    return _resolve(target, quick=False)
+
+
+def quick_check(target: str) -> bool:
+    """Would AI mode accept this target? Instant (used by the tips under a traceback): the same
+    rules as resolve(), but no sandbox probe or self-test (the strictest sandbox level,
+    "audit-hook", is assumed, so file/network libraries are never suggested), no suggestions,
+    and only libraries that are already imported in this process."""
+    try:
+        _resolve(target, quick=True)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _resolve(target: str, quick: bool) -> TargetInfo:
+    def hints(*args, **kwargs) -> List[str]:
+        return [] if quick else suggest(*args, **kwargs)
+
     name = _clean(target)
     if not name:
         raise UnknownTarget("no function name given")
@@ -296,25 +316,27 @@ def resolve(target: str) -> TargetInfo:
     if not owner:
         obj = getattr(builtins, name, None)
         if obj is None or not _good_callable(name, obj):
-            raise UnknownTarget(f"'{name}' is not a built-in function", suggest(name))
+            raise UnknownTarget(f"'{name}' is not a built-in function", hints(name))
         if name in EXCLUDED_BUILTINS:
-            raise UnknownTarget(f"'{name}' can't be used for exercises", suggest(name))
+            raise UnknownTarget(f"'{name}' can't be used for exercises", hints(name))
         return TargetInfo(name, name, "builtin", "", _signature(obj, name),
                           _squeeze(inspect.getdoc(obj)))
     if owner in METHOD_OWNERS:
         obj = getattr(METHOD_OWNERS[owner], short, None)
         if obj is None or not _good_callable(short, obj):
-            raise UnknownTarget(f"'{owner}' has no method '{short}'", suggest(name))
+            raise UnknownTarget(f"'{owner}' has no method '{short}'", hints(name))
         return TargetInfo(name, short, "method", owner, _signature(obj, short),
                           _squeeze(inspect.getdoc(obj)))
     if hasattr(builtins, owner):
-        raise UnknownTarget(f"methods of '{owner}' are not supported", suggest(name))
+        raise UnknownTarget(f"methods of '{owner}' are not supported", hints(name))
     top = owner.split(".")[0]
-    what, why = sandbox.refusal(name)
+    what, why = sandbox.refusal(name, "audit-hook" if quick else None)
     if what:
         raise UnknownTarget(f"'{what}' is not allowed in pygym ({why})")
     if not all(p.isidentifier() for p in owner.split(".")):
         raise UnknownTarget(f"'{owner}' is not a library name")
+    if quick and owner not in sys.modules:
+        raise UnknownTarget(f"'{owner}' is not imported here")
     if not _installed(top):
         raise UnknownTarget(sandbox.install_hint(top) or f"there is no library called '{top}'")
     try:
@@ -333,7 +355,9 @@ def resolve(target: str) -> TargetInfo:
         raise UnknownTarget(f"the library '{owner}' could not be imported")
     obj = getattr(mod, short, None)
     if obj is None or not _good_callable(short, obj):
-        raise UnknownTarget(f"'{owner}' has no function '{short}'", suggest(name, library=owner))
+        raise UnknownTarget(f"'{owner}' has no function '{short}'", hints(name, library=owner))
+    if quick:   # it is imported in this process; the real start checks the sandbox again
+        return TargetInfo(name, short, "module", owner, "", "")
     ok, problem = sandbox.importable(top)
     if not ok:
         raise UnknownTarget(f"'{top}' does not import inside the pygym sandbox ({problem})")
