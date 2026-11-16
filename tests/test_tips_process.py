@@ -71,8 +71,10 @@ def test_script_without_pygym_on_path_shows_python_m(tmp_path):
     script = tmp_path / "student.py"
     script.write_text("from pygym import exercise\n" + STUDENT)
     proc = _run([str(script)], _env(tmp_path), tmp_path)
+    # A Python path with a space (a Windows user name like "Jason Choy") is shown in quotes.
+    exe = f'"{sys.executable}"' if " " in sys.executable else sys.executable
     assert proc.stderr.splitlines()[-1].startswith(
-        f"pygym: this line uses zip(); 30-second exercise? {sys.executable} -m pygym zip")
+        f"pygym: this line uses zip(); 30-second exercise? {exe} -m pygym zip")
 
 
 def test_script_with_the_setting_off_has_no_tip(tmp_path):
