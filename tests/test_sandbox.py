@@ -157,7 +157,16 @@ def test_network_is_blocked(lv):
             "    return 'connected'\n")
     res = run(code, inputs=[["1.1.1.1"], ["example.com"]], lv=lv, target="socket.socket",
               imports=["socket"])
-    assert all("blocked" in v for v in values(res))
+    got = values(res)
+    assert "connected" not in got
+    if lv == "audit-hook":
+        assert all("blocked" in v for v in got)
+    else:
+        # bwrap has no network at all (--unshare-net). A host NAME is looked up before Python's
+        # audit event for the connect, so that lookup fails first ("[Errno -3] Temporary failure
+        # in name resolution") and the friendly "blocked: ..." message never appears. Either way
+        # the connection did not happen.
+        assert all("blocked" in v or "Errno" in v for v in got), got
 
 
 @pytest.mark.parametrize("lv", LEVELS)
