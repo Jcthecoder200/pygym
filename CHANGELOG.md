@@ -10,6 +10,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   yet, a Python path with a space in the pip hint) are platform-aware, and Rich is not treated as a legacy
   Windows console under pytest's output capture.
 ### Added
+- **Tips at your error** (`pygym.tips`): when the student's own code crashes, one line under the
+  normal traceback names the built-ins on the failing line that have exercises, and the command to
+  start one (`pygym: this line uses zip(); 30-second exercise? exercise('zip')`). No model and no
+  network: it reads the traceback and the source line, so it is instant and the same every time.
+  In AI mode library functions count too (`statistics.median()`, `np.mean()`). On with
+  `import pygym`, `%load_ext pygym` or `pygym.tips(True)`; always on without an import with
+  `pygym --tips on` (a small `.pth` hook and an IPython startup file); `pygym --tips off` removes
+  both. Works in scripts, both Python REPLs, IDLE, IPython and Jupyter kernels. New setting
+  `tips` (default on), shown by `pygym --status`. pygym's sandbox processes never show a tip
+  (`PYGYM_NO_TIPS`). Details: docs/ERROR_TIPS.md; demo: docs/demo_error_tips.ipynb.
 - **34 more hand-written exercises** (83 in total): an intermediate and an advanced one for each
   of the 17 built-ins (`reversed` and `abs` get levels 2-3 / 2-3 too). They all follow the level
   rules (`validate_exercises.py --levels` lists none of them), have 5-6 tests, and use made-up data.
@@ -24,6 +34,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 - `tools/real_machine_check.py` and `tools/notebook_check.ipynb`: self-reporting checks to run on
   Windows, macOS, Python 3.9 and in a browser notebook.
 ### Changed
+- `import pygym` is faster (89 -> 63 ms on the Linux test machine): the dataset is read as a plain
+  file (no `importlib.resources` unless pygym is installed in a zip) and `pygym.Session` is
+  imported on first use. The tips under a traceback pay this import when pygym was not imported
+  yet (the global hook).
+- `exercise()` started in IDLE's shell no longer picks the terminal editor on Linux/macOS (IDLE's
+  shell says it is a terminal, but it is not); it opens the tkinter window, as on Windows.
 - Notebook front-end: under every exercise a line says that the answer goes in a NEW cell that
   starts with `%%pygym :w` (the output has no input box; a student on Colab looked for one).
 ### Fixed
