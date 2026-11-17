@@ -329,6 +329,29 @@ def test_child_environment_drops_secrets(monkeypatch):
     assert values(run(code, target="os.getcwd", imports=["os"])) == [[]]
 
 
+def test_no_provider_key_ever_reaches_the_exercise(monkeypatch):
+    """Every key variable of every AI provider (registry key_env) and PYGYM_API_KEY is set; the
+    exercise's own code looks at its environment and finds none of them, nor their values."""
+    from pygym.ai import keys, registry
+    names = registry.key_env_names()
+    assert "PYGYM_API_KEY" in names and "ANTHROPIC_API_KEY" in names and "GROQ_API_KEY" in names
+    for i, name in enumerate(names):
+        monkeypatch.setenv(name, f"secret-value-{i}")
+    keys.save_key("openai", "secret-saved-key")
+    env = sandbox.child_env()
+    assert not set(names) & set(env)
+    assert not any("secret-" in v for v in env.values())
+    # a second lock: even a variable the allow-list keeps is removed if it is a key variable
+    monkeypatch.setattr(sandbox, "KEEP_ENV", sandbox.KEEP_ENV + ("OPENAI_API_KEY", "MY_API_KEY"))
+    monkeypatch.setenv("MY_API_KEY", "secret-other")
+    env = sandbox.child_env()
+    assert "OPENAI_API_KEY" not in env and "MY_API_KEY" not in env
+    code = ("import os\ndef f():\n"
+            "    return sorted(k for k, v in os.environ.items()\n"
+            "                  if 'KEY' in k or 'TOKEN' in k or v.startswith('secret-'))")
+    assert values(run(code, target="os.getcwd", imports=["os"])) == [[]]
+
+
 # ----- the audit hook, called directly ------------------------------------------------------
 
 

@@ -3,7 +3,8 @@
 pygym has two modes:
 
 - **preset** (default): exercises written and checked by people. Works offline.
-- **ai**: a small language model (LLM) on your own computer writes a new exercise each time,
+- **ai**: a language model (LLM) writes a new exercise each time (by default a small model on
+  your own computer with Ollama; other [providers](#providers) work too),
   for almost any function: built-ins (`zip`), methods (`str.join`), standard modules
   (`statistics.median`, `itertools.chain`) and **any library you have installed**
   (`numpy.cumsum`, `pandas.concat`, `requests.get`).
@@ -205,8 +206,8 @@ model and per run (`/api/show`, its `capabilities`) and sends `"think": false` t
 list `thinking`. Measured: qwen3.5:2b then answers in about 4.5 s with no thinking text. Other
 models get no `think` field. Ollama 0.18.1 also accepts `"think": false` for a non-thinking
 model (tried with qwen2.5:1.5b), but an older server may not. If a server refuses the field
-(HTTP 400 about `think`), the request is sent once more without it. The `openai` provider never
-sends a `think` field.
+(HTTP 400 about `think`), the request is sent once more without it. The other providers never
+send a `think` field (for them, `<think>` text in a reply is removed before the checks).
 
 ## Settings
 
@@ -215,9 +216,9 @@ Settings live in `~/.pygym/config.json` (or `$PYGYM_HOME/config.json`):
 | Field | Default | Meaning |
 |---|---|---|
 | `mode` | `"preset"` | `"preset"` or `"ai"` |
-| `provider` | `"ollama"` | `"ollama"` or `"openai"` (any OpenAI-compatible server) |
-| `model` | `"qwen2.5:1.5b"` | the model name for that provider |
-| `base_url` | `"http://localhost:11434"` | where the server is |
+| `provider` | `"ollama"` | a provider name from the table below (`pygym --providers`) |
+| `model` | `"qwen2.5:1.5b"` | the model name for that provider; `""` = the provider's default |
+| `base_url` | `"http://localhost:11434"` | where the server is; `""` = the provider's default |
 | `prefetch` | `true` | write the next AI exercise in the background while you work |
 | `ai_timeout` | `60` | seconds the AI may spend on one exercise (10-300); it keeps asking until a reply passes the checks or this time is used |
 | `ai_self_review` | `false` | send each reply back to the model once to review and fix before the checks (two calls per try; measured no better with qwen2.5:1.5b and twice as slow, see [PROMPT_DESIGN.md](PROMPT_DESIGN.md)) |
@@ -226,28 +227,104 @@ Environment variables:
 
 - `PYGYM_NO_AI=1` turns AI mode off completely (no network at all). Useful in tests and
   offline classes.
-- `PYGYM_API_KEY` is the API key for the `openai` provider. It is **never** saved in
-  `config.json` and never passed to the sandbox.
+- API keys: each provider's own variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+  `GEMINI_API_KEY` or `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `API_SERVER_KEY`
+  for hermes-agent), then the key saved with `pygym --set-key NAME` in `~/.pygym/keys.json`, then
+  `PYGYM_API_KEY` (the one key of 0.2 / 0.3.0, the key of `openai-compatible`). First found wins.
+  A key is **never** saved in `config.json`, never printed (`--status` says only where it comes
+  from), never in an error message (a server that echoes it gets `[key hidden]`), and never
+  passed to the sandbox: every key variable of every provider is removed from the exercise
+  process's environment.
 - `PYGYM_SANDBOX=audit-hook` switches off the operating-system layer of the sandbox (see
   [The sandbox](#the-sandbox)).
 
-### Other servers (LM Studio, llama.cpp, vLLM, hosted APIs)
+### Providers
 
-Set `provider` to `"openai"` and `base_url` to the server's address **including `/v1`**, for
-example `"http://localhost:1234/v1"` for LM Studio. The flags do the same:
-`pygym --set-provider openai --set-base-url http://localhost:1234/v1 --set-model NAME`
-(`pygym --set-provider ollama` goes back). The "is AI ready?" check waits 0.5 s for a server on
-this computer and 6 s for any other address (cloud APIs took 2.6-4.6 s). The server must support JSON-schema
-structured output (`response_format` of type `json_schema`).
+All providers are in one table, `src/pygym/ai/registry.py`: name, kind, default address, key
+variables, default model, and who receives the prompt. `pygym --providers` prints it (no network
+calls).
+
+| Provider | Kind (class) | Default address | Key | Default model |
+|---|---|---|---|---|
+| `ollama` | Ollama's own API (`OllamaProvider`) | `http://localhost:11434` | none | `qwen2.5:1.5b` |
+| `openai-compatible` (`custom`) | OpenAI chat API (`OpenAICompatProvider`) | none: `--set-base-url` | `PYGYM_API_KEY`, optional | none: `--set-model` |
+| `lmstudio` (`lm-studio`) | OpenAI chat API | `http://localhost:1234/v1` | none | the first model it lists |
+| `openai` | OpenAI chat API | `https://api.openai.com/v1` | `OPENAI_API_KEY`, required | `gpt-6-luna` |
+| `anthropic` | Messages API (`AnthropicProvider`) | `https://api.anthropic.com` | `ANTHROPIC_API_KEY`, required | `claude-haiku-5-5` |
+| `gemini` (`google`) | OpenAI chat API | `https://generativelanguage.googleapis.com/v1beta/openai` | `GEMINI_API_KEY` / `GOOGLE_API_KEY`, required | `gemini-3.8-flash` |
+| `openrouter` | OpenAI chat API | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY`, required | `openrouter/auto` |
+| `groq` | OpenAI chat API | `https://api.groq.com/openai/v1` | `GROQ_API_KEY`, required | `openai/gpt-oss-20b` |
+| `hermes` | OpenAI chat API | `http://127.0.0.1:8645/v1` | none | `stepfun/step-3.7-flash:free` |
+| `hermes-agent` | OpenAI chat API | `http://127.0.0.1:8642/v1` | `API_SERVER_KEY`, optional | `hermes-agent` |
+| `claude-code` (`claude`) | the `claude -p` command (`ClaudeCodeProvider`) | none | none (your Claude login) | `sonnet` |
+
+The default models are suggestions that worked in November 2026; model names change. How
+settings are read (`registry.resolve`): an empty `model` or `base_url` is the provider's
+default; Ollama's address and model, which every `config.json` holds since 0.1, are ignored for
+the other providers; and `"openai"` with an address that is not `api.openai.com` means
+`openai-compatible`, as it did in 0.3.0 (`--status` shows a note). `pygym --set-provider NAME`
+saves `model` and `base_url` as `""` when the provider changes, unless `--set-model` or
+`--set-base-url` are given too.
+
+Details per kind:
+
+- **OpenAI chat API**: `POST {base_url}/chat/completions` with `Authorization: Bearer KEY` and
+  `response_format` of type `json_schema`; the schema is also in the system message, because
+  many models ignore the field. If a server refuses a field with HTTP 400/422 (`max_tokens` ->
+  `max_completion_tokens`, `temperature`, `seed`, `json_schema` -> `json_object` -> nothing), the
+  request is sent again without it, and that is remembered for the server and model for the rest
+  of the run. `<think>` blocks and ```` ```json ```` fences around the reply are removed.
+- **Anthropic**: `POST {base_url}/v1/messages` with `x-api-key` and `anthropic-version`, the
+  system text in `system`, and the schema as structured output (`output_config`); a server that
+  refuses `output_config` is asked again without it (remembered).
+- **claude-code**: `claude -p --output-format json --json-schema ... --model sonnet` with the
+  prompt on stdin, in an empty temporary folder that is deleted after, with `--tools ""`,
+  `--strict-mcp-config`, `--setting-sources ""`, `--no-session-persistence`. `ANTHROPIC_API_KEY`,
+  `ANTHROPIC_AUTH_TOKEN` and the other providers' key variables are removed from its
+  environment, so your Claude plan's login is used and never API billing. The "ready" check runs
+  `claude auth status` once per run. Temperature, seed and the token limit can not be set.
+
+The "is AI ready?" check (`--status`, the menu header, before each AI exercise):
+
+- Ollama and the local OpenAI-compatible servers: a real request (`/api/tags` or `/models`: is
+  the server there, is the model offered?). It waits 0.5 s for a server on this computer and 6 s
+  for any other address (cloud APIs took 2.6-4.6 s for `GET /models`; with 0.5 s AI mode always
+  fell back to presets). The Hermes servers get 10 s and only the port is checked: their
+  `/models` takes seconds.
+- The cloud providers (`openai`, `anthropic`, `gemini`, `openrouter`, `groq`): the menu's check
+  makes no request, only "is there a key?", so the menu never waits on the internet and nothing
+  is billed. `pygym --status` runs the live check (`ai.live_check`, up to 6 s): it asks the
+  server whether it accepts the key (`GET /models`; OpenRouter lists models without a key, so
+  there `GET /key`), never a model call. A wrong key shows there, or at the first exercise:
+  `OpenAI refused the API key (HTTP 401); give the right one: pygym --set-key openai, or set
+  OPENAI_API_KEY`.
+- HTTP errors become one line: 401/403 = key missing or refused (with the provider's own
+  variable and `--set-key` command), 402/429 or "quota"/"credit" = rate limit or no credits,
+  404 = wrong model or address, 5xx = a problem on the provider's side.
+
+### Other servers (llama.cpp, vLLM, hosted APIs pygym has no name for)
+
+`pygym --set-provider openai-compatible --set-base-url http://localhost:8080/v1 --set-model NAME`.
+The address must include `/v1`. Ollama's own OpenAI-compatible address is
+`http://localhost:11434/v1`. `pygym --set-provider ollama` goes back. The server should support
+JSON-schema structured output (`response_format` of type `json_schema`); without it pygym falls
+back as described above.
 
 ## Privacy
 
-- With Ollama (the default) everything stays on your computer.
-- With the `openai` provider, the **prompt** is sent to that server: the function's name, its
-  documentation and short descriptions of earlier exercises for that function. **Your code is
-  never sent.** If `base_url` points to a cloud service, that service sees the prompt.
+- With Ollama (the default), `lmstudio`, or `openai-compatible` at a `localhost` address,
+  everything stays on your computer.
+- With any other provider, the **prompt** is sent to it: the function's name, its documentation
+  and short descriptions of earlier exercises for that function. **Your code is never sent.**
+  `pygym --providers` and `pygym --status` name who receives the prompt: OpenAI, Anthropic,
+  Google, Groq; OpenRouter and the model's maker; for `hermes`, Nous Research and the model's
+  provider (the proxy runs on your computer, the model does not); for `claude-code`, Anthropic,
+  through your Claude plan.
+- Cloud APIs bill your account (or use a free tier) per request. `claude-code` uses your plan's
+  usage limits.
 - Your progress, saved exercises, the saved use cases and the last 30 rejected model replies
-  (`~/.pygym/generated/rejected.jsonl`, to help improve the prompt) stay in `~/.pygym`.
+  (`~/.pygym/generated/rejected.jsonl`, to help improve the prompt) stay in `~/.pygym`. Saved
+  keys are in `~/.pygym/keys.json` (file mode 600 on Linux and macOS).
 
 ## Which functions work
 

@@ -3,7 +3,7 @@
     python experiments/readme_shots.py
 
 Writes:
-  docs/media/status.svg          `pygym --set-provider openai ...` then `pygym --status`, recorded
+  docs/media/status.svg          `pygym --set-provider openai-compatible ...` then `pygym --status`, recorded
                                  with Rich. Needs Ollama on localhost:11434 (its /v1 address).
   experiments/out/pygym_flow.html  a notebook (the error tip, exercise("zip"), a wrong and a right
                                  %%pygym :w) executed in a real kernel and exported to HTML.
@@ -45,7 +45,7 @@ def status_svg() -> None:
 
     con = Console(record=True, width=92, color_system="truecolor", force_terminal=True,
                   file=open(os.devnull, "w"))
-    for argv in (["--set-mode", "ai", "--set-provider", "openai", "--set-base-url",
+    for argv in (["--set-mode", "ai", "--set-provider", "openai-compatible", "--set-base-url",
                   "http://localhost:11434/v1", "--set-model", "qwen2.5:1.5b"], ["--status"]):
         con.print(Text("$ ", style="bold green") + Text("pygym " + " ".join(argv), style="bold"))
         menu.main(argv, console=con)

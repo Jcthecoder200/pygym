@@ -84,12 +84,21 @@ def test_bad_ui_becomes_auto(_home):
 @pytest.mark.parametrize("bad", ["", "   ", 5, None])
 def test_bad_text_fields_use_the_default(_home, field, bad):
     write(_home, json.dumps({field: bad}))
-    assert getattr(config.load(), field) == getattr(Settings(), field)
+    expected = getattr(Settings(), field)
+    if field in ("model", "base_url") and isinstance(bad, str):
+        expected = ""          # an empty model or address means "the provider's default"
+    assert getattr(config.load(), field) == expected
+
+
+def test_empty_model_and_address_mean_the_provider_default(_home):
+    config.save(Settings(provider="groq", model="", base_url=""))
+    s = config.load()
+    assert (s.provider, s.model, s.base_url) == ("groq", "", "")
 
 
 @pytest.mark.parametrize("settings", [
     Settings(mode="robot"), Settings(level=7), Settings(level=True), Settings(ui="x"),
-    Settings(model=""), Settings(mode="AI"),
+    Settings(provider=""), Settings(mode="AI"),
 ])
 def test_save_refuses_invalid_values(settings, _home):
     with pytest.raises(ValueError):

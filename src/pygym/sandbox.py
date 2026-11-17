@@ -229,8 +229,23 @@ def command(lv: str, root: str, program: List[str]) -> List[str]:
     return list(program)
 
 
+def _key_env_names() -> Tuple[str, ...]:
+    """Every environment variable that may hold an AI provider's key (pygym.ai.registry)."""
+    try:
+        from .ai.registry import key_env_names   # imported here: the sandbox loads no AI code
+        return key_env_names()
+    except ImportError:  # pragma: no cover - a broken install still drops the 0.2 key
+        return ("PYGYM_API_KEY",)
+
+
 def child_env() -> Dict[str, str]:
+    """The exercise process's environment: only KEEP_ENV, and never an API key (a second lock:
+    every key variable of every AI provider is removed by name too)."""
     env = {k: v for k, v in os.environ.items() if k.upper() in KEEP_ENV}
+    for name in _key_env_names():
+        env.pop(name, None)
+    for name in [k for k in env if "API_KEY" in k.upper()]:
+        del env[name]
     # Exercises only ever talk to the local fixture server, never through a proxy. Saying so also stops
     # urllib/requests on Windows from looking for proxy settings in the registry: that lookup is
     # refused by the audit hook ("winreg.OpenKey"), harmless to the answer but it used to leave a

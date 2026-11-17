@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/pygym-cityu?label=PyPI&color=3775A9)](https://pypi.org/project/pygym-cityu/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-3776AB)](#tested-setup)
-[![Tests](https://img.shields.io/badge/tests-1742%20passed-2ea44f)](#development)
+[![Tests](https://img.shields.io/badge/tests-1895%20passed-2ea44f)](#development)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/Jcthecoder200/pygym)](https://github.com/Jcthecoder200/pygym/commits/main)
 
@@ -81,7 +81,8 @@ import pygym_cityu               # wrong: ModuleNotFoundError
 ```
 
 In Jupyter or Google Colab, install inside the notebook with `%pip install pygym-cityu`.
-AI mode needs one more program, see [AI mode](#ai-mode); everything else works without it.
+AI mode needs a model: one more program (Ollama) or a provider with your API key, see
+[AI mode](#ai-mode); everything else works without it.
 
 ## Quick start
 
@@ -127,7 +128,7 @@ expected value, your value and anything you printed.
 
 | Platform | Python | What was run |
 |---|---|---|
-| Linux (Fedora 44), with bubblewrap | 3.10 - 3.14 | full test suite (1742 passed, 24 skipped on 3.14), editor, menu, Jupyter kernel, AI mode with Ollama |
+| Linux (Fedora 44), with bubblewrap | 3.10 - 3.14 | full test suite (1895 passed, 24 skipped on 3.14), editor, menu, Jupyter kernel, AI mode with Ollama |
 | Windows 11 | 3.13 (Microsoft Store), 3.9.13 (python.org) | `tools/real_machine_check.py`, editor keys, tkinter window, sandbox |
 | Google Colab | 3.13 | notebook front-end |
 | macOS | - | **never run on a Mac.** The code has a macOS path (`sandbox-exec`), but nobody has tried it |
@@ -148,8 +149,9 @@ Parts most likely to behave differently on your machine:
 - **AI mode**: a language model writes a new exercise for any function of any installed library
   (`statistics.median`, `str.join`, `numpy.cumsum`...). Each one is checked in the sandbox before
   you see it.
-- **Bring your own model**: local Ollama by default, or any OpenAI-compatible server with your
-  own API key (a cloud API, LM Studio, llama.cpp, vLLM...).
+- **Bring your own model**: local Ollama by default, or pick a provider by name (OpenAI,
+  Anthropic, Gemini, OpenRouter, Groq, LM Studio, your Claude plan...) and save your key with
+  `pygym --set-key`. Any OpenAI-compatible server works too.
 - **Tips at your error**: when your code crashes, one line under the traceback suggests an
   exercise for the built-in on the failing line. No AI, no internet.
 - **Four front-ends**: a Neovim-style terminal editor, a line-by-line CLI, a tkinter window and
@@ -214,9 +216,12 @@ flowchart LR
 | `pygym FUNCTION --ui text` | choose the window: `auto`, `editor`, `text`, `tk` |
 | `pygym --mode ai` (no function) | save AI mode as your default (also works for `--level` and `--ui`) |
 | `pygym --set-mode preset` | save the default mode |
-| `pygym --set-model NAME` | save the model AI mode uses, e.g. `qwen2.5:3b` |
-| `pygym --set-provider openai` | save the AI provider: `ollama` (default) or `openai` (any OpenAI-compatible server, see [your own API key](#use-your-own-ai-model-or-api-key)) |
-| `pygym --set-base-url URL` | save the AI server's address, e.g. `https://api.openai.com/v1` |
+| `pygym --set-provider NAME` | save the AI provider: `ollama` (default), `openai`, `anthropic`, `gemini`, `groq`... (see [your own API key](#use-your-own-ai-model-or-api-key)); its address and model go back to the provider's defaults |
+| `pygym --set-key NAME` | save an API key for a provider in `~/.pygym/keys.json`; pygym asks for it (hidden), never type it on the command line |
+| `pygym --forget-key NAME` | delete a saved key |
+| `pygym --providers` | list the providers: key status, default model, who receives the prompt |
+| `pygym --set-model NAME` | save the model AI mode uses, e.g. `qwen2.5:3b` (`default` = the provider's own) |
+| `pygym --set-base-url URL` | save the AI server's address, e.g. `http://localhost:8080/v1` (`default` = the provider's own) |
 | `pygym --list` | list the libraries |
 | `pygym --list builtins` | list the functions of one library (★ = has hand-written exercises) |
 | `pygym --status` | show your settings, whether AI mode is ready and which sandbox you have |
@@ -395,58 +400,110 @@ pygym --status                 # "AI ready" when pygym can reach it
 pygym --set-model qwen2.5:3b   # optional: use another model you pulled
 ```
 
+To use a cloud API (OpenAI, Anthropic, Gemini, OpenRouter, Groq), LM Studio or your Claude plan
+instead, see [Use your own AI model or API key](#use-your-own-ai-model-or-api-key).
 Without a reachable model, AI mode falls back to the hand-written exercises. How it works:
 [docs/AI_MODE.md](docs/AI_MODE.md). How the prompt is built: [docs/PROMPT_DESIGN.md](docs/PROMPT_DESIGN.md).
 
 ## Use your own AI model or API key
 
-Instead of Ollama you can use any server that speaks the OpenAI chat API: a cloud API with
-your own key, or a local server such as LM Studio, llama.cpp or vLLM. The server must support
-JSON-schema structured output (`response_format` of type `json_schema`).
+Instead of Ollama you can pick another provider by name. pygym knows its address and a default
+model, so you only choose the provider and give it a key.
 
-**1. Point pygym at the server** (the address must include `/v1`):
+| Provider | What it is | Key variable | Default model | Runs |
+|---|---|---|---|---|
+| `ollama` | Ollama on your computer (the default) | none | `qwen2.5:1.5b` | your computer |
+| `lmstudio` | LM Studio's local server | none | the model loaded in LM Studio | your computer |
+| `openai-compatible` | any OpenAI-compatible server: llama.cpp, vLLM, Ollama's `/v1`, a hosted API | `PYGYM_API_KEY` (if the server wants one) | you choose | where you point it |
+| `openai` | OpenAI API | `OPENAI_API_KEY` | `gpt-6-luna` | cloud |
+| `anthropic` | Anthropic API (Claude models) | `ANTHROPIC_API_KEY` | `claude-haiku-5-5` | cloud |
+| `gemini` | Google Gemini API (has a free tier) | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `gemini-3.8-flash` | cloud |
+| `openrouter` | OpenRouter: many models with one key | `OPENROUTER_API_KEY` | `openrouter/auto` | cloud |
+| `groq` | Groq API: fast open models (has a free tier) | `GROQ_API_KEY` | `openai/gpt-oss-20b` | cloud |
+| `hermes` | the Hermes subscription proxy (your Nous Portal login) | none | `stepfun/step-3.7-flash:free` | a proxy on your computer, the model in the cloud |
+| `hermes-agent` | the Hermes API server (your whole Hermes agent, slower) | `API_SERVER_KEY` (optional) | `hermes-agent` | a server on your computer, the model where your agent has it |
+| `claude-code` | your Claude plan through the Claude Code command (no API key) | none (your Claude login) | `sonnet` | cloud |
+
+Other names also work: `custom` = `openai-compatible`, `google` = `gemini`, `claude` =
+`claude-code`, `lm-studio` = `lmstudio`. Model names change over time: the defaults are
+suggestions that worked in November 2026. Choose another with `pygym --set-model NAME`.
+
+**1. Choose the provider.** Its address and default model are filled in; an address or model
+you set for the old provider is not carried over.
 
 ```bash
-pygym --set-mode ai --set-provider openai --set-base-url https://api.openai.com/v1 --set-model YOUR-MODEL-NAME
+pygym --set-mode ai --set-provider groq
 ```
 
-Other addresses: `http://localhost:1234/v1` (LM Studio), `http://localhost:11434/v1` (Ollama
-through its OpenAI-compatible API). `pygym --set-provider ollama` switches back to Ollama.
-
-**2. Give it your key** in the `PYGYM_API_KEY` environment variable. The key is never written to
-pygym's settings and never passed to the sandbox. A server on your own computer usually needs
-no key.
+**2. Give it your key.** `--set-key` asks for the key and does not show it while you paste.
+It is saved in `~/.pygym/keys.json`, which only you can read (file mode 600 on Linux and
+macOS; on Windows the file is protected by being in your user folder). Never type the key on
+the command line: it would stay in your shell history, so pygym refuses it there.
 
 ```bash
-export PYGYM_API_KEY="sk-..."            # Linux / macOS (add it to ~/.bashrc to keep it)
+pygym --set-key groq                     # paste the key, press Enter
+printf '%s\n' "$MY_KEY" | pygym --set-key groq   # or pipe it in (scripts)
+pygym --forget-key groq                  # delete the saved key
+```
+
+You can also use the provider's environment variable instead (it wins over a saved key):
+
+```bash
+export GROQ_API_KEY="gsk_..."            # Linux / macOS (add it to ~/.bashrc to keep it)
 ```
 
 ```powershell
-$env:PYGYM_API_KEY = "sk-..."            # Windows PowerShell, this window only
-setx PYGYM_API_KEY "sk-..."              # Windows, for new windows from now on
+$env:GROQ_API_KEY = "gsk_..."            # Windows PowerShell, this window only
+setx GROQ_API_KEY "gsk_..."              # Windows, for new windows from now on
 ```
 
 ```python
-import os; os.environ["PYGYM_API_KEY"] = "sk-..."   # Colab / Jupyter, before exercise(...)
+import os; os.environ["GROQ_API_KEY"] = "gsk_..."   # Colab / Jupyter, before exercise(...)
 ```
 
-![Terminal: pygym --set-provider openai --set-base-url http://localhost:11434/v1 saves the settings, then pygym --status shows provider openai, API key set, AI ready](docs/media/status.svg)
+`PYGYM_API_KEY`, the one key of pygym 0.2 and 0.3.0, still works for every provider that takes
+a key, after the provider's own variable and the saved key. A key is never written to
+`config.json`, never printed, and never passed to the sandbox that runs your code.
+
+**3. Check it**: `pygym --status` shows the provider, its address and model, where the key comes
+from (`key saved (keys.json)` or `key set (GROQ_API_KEY)`, never the key itself), who receives
+the prompt, and `AI ready`. If it is not ready it says what to do, for example
+`no API key for Groq: pygym --set-key groq, or set GROQ_API_KEY`. For a cloud provider
+`--status` asks the server whether it accepts the key (a free request, no model call), so a
+wrong key shows here as `Groq refused the API key (HTTP 401)`. The menu itself never waits on
+the internet: there a cloud provider counts as ready once a key is set.
+
+`pygym --providers` lists every provider with its key status, default model and who receives
+the prompt. It makes no network calls.
+
+**Your own OpenAI-compatible server** (llama.cpp, vLLM, a hosted API pygym has no name for):
+give the address, including `/v1`, and the model name the server uses.
+
+```bash
+pygym --set-provider openai-compatible --set-base-url http://localhost:8080/v1 --set-model NAME
+```
+
+Ollama also speaks this API at `http://localhost:11434/v1`. `pygym --set-provider ollama`
+switches back to Ollama's own API. `--set-model default` and `--set-base-url default` go back to
+the provider's defaults. The setting of 0.3.0, `--set-provider openai` with an address that is
+not OpenAI's, still works: pygym reads it as `openai-compatible` and `--status` says so. The
+server should support JSON-schema output; if it refuses that (or `max_tokens`, `temperature`,
+`seed`), pygym asks once more without it and remembers.
+
+![Terminal: pygym --set-provider openai-compatible --set-base-url http://localhost:11434/v1 --set-model qwen2.5:1.5b saves the settings, then pygym --status shows the provider, the model, the address, API key set, who receives the prompt, and AI ready](docs/media/status.svg)
 
 *A real run against Ollama's OpenAI-compatible address with a dummy key.*
 
-**3. Check it**: `pygym --status` shows the provider, the address, whether a key is set (never
-the key itself) and `AI ready`. If it is not ready it says why, for example
-`needs an API key (HTTP 401)`, `refused the API key`, or `model '...' is not offered`.
-
 Instead of the flags you can edit `~/.pygym/config.json` (on Windows
-`C:\Users\<you>\.pygym\config.json`; fields you leave out keep their defaults):
+`C:\Users\<you>\.pygym\config.json`; fields you leave out keep their defaults; `""` for
+`model` or `base_url` means the provider's default):
 
 ```json
 {
   "mode": "ai",
-  "provider": "openai",
-  "base_url": "https://api.openai.com/v1",
-  "model": "YOUR-MODEL-NAME"
+  "provider": "anthropic",
+  "base_url": "",
+  "model": ""
 }
 ```
 
@@ -455,14 +512,24 @@ or do it from Python:
 ```python
 from pygym import config
 s = config.load()
-s.mode, s.provider = "ai", "openai"
-s.base_url, s.model = "https://api.openai.com/v1", "YOUR-MODEL-NAME"
+s.mode, s.provider, s.base_url, s.model = "ai", "anthropic", "", ""
 config.save(s)
 ```
 
-Privacy: with a server that is not on your computer, the **prompt** is sent to it (the
-function's name, its documentation and short descriptions of earlier exercises for that
-function). **Your code is never sent.** Cloud APIs bill your account per request.
+**Privacy.** The **prompt** goes to the provider: the function's name, its documentation and
+short descriptions of earlier exercises for that function. **Your code is never sent.** With
+`ollama`, `lmstudio`, or `openai-compatible` at a `localhost` address, nothing leaves your
+computer. The `--providers` table and `--status` name who receives the prompt.
+
+- Cloud APIs (`openai`, `anthropic`, `gemini`, `openrouter`, `groq`) bill your account or use
+  your free tier per request. OpenRouter passes the prompt on to the model's maker.
+- `hermes` runs on your computer but forwards the prompt to Nous Research and the model's
+  provider. Free models end in `:free`; paid ones use your Nous Portal credits.
+  `hermes-agent` runs your whole Hermes agent for each exercise.
+- `claude-code` runs the `claude` command on your computer (install Claude Code and run
+  `claude` once to log in). pygym starts it in an empty temporary folder with no tools, no MCP
+  servers and no saved session, and removes `ANTHROPIC_API_KEY` from its environment so your
+  plan is used, not API billing. Each exercise uses some of your plan's usage limits.
 
 ## Settings and environment variables
 
@@ -473,21 +540,24 @@ Settings live in `~/.pygym/config.json` (or `$PYGYM_HOME/config.json`). The menu
 |---|---|---|
 | `mode` | `"preset"` | `"preset"` or `"ai"` |
 | `level` | `1` | the starting level: 1, 2 or 3 |
-| `provider` | `"ollama"` | `"ollama"` or `"openai"` (any OpenAI-compatible server) |
-| `model` | `"qwen2.5:1.5b"` | the model name for that provider |
-| `base_url` | `"http://localhost:11434"` | where the model server is |
+| `provider` | `"ollama"` | `ollama`, `openai-compatible`, `lmstudio`, `openai`, `anthropic`, `gemini`, `openrouter`, `groq`, `hermes`, `hermes-agent` or `claude-code` (`pygym --providers`). `"openai"` with an address that is not OpenAI's is read as `openai-compatible` |
+| `model` | `"qwen2.5:1.5b"` | the model name for that provider; `""` = the provider's default |
+| `base_url` | `"http://localhost:11434"` | where the model server is; `""` = the provider's default |
 | `ui` | `"auto"` | `"auto"`, `"editor"`, `"text"` or `"tk"` |
 | `prefetch` | `true` | write the next AI exercise in the background while you work |
 | `ai_timeout` | `60` | seconds the AI may spend on one exercise (10-300) |
 | `ai_self_review` | `false` | the model reviews its own reply once (twice as slow, measured no better with the default model) |
 | `tips` | `true` | tips at your error |
 
-A broken or missing file never stops pygym: bad values fall back to their defaults.
+A broken or missing file never stops pygym: bad values fall back to their defaults. API keys are
+never in `config.json`: `pygym --set-key` saves them in `keys.json` next to it (only you can
+read it).
 
 | Environment variable | Effect |
 |---|---|
-| `PYGYM_API_KEY` | API key for the `openai` provider |
-| `PYGYM_HOME` | folder for settings, progress and saved AI exercises (default `~/.pygym`) |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `API_SERVER_KEY` (hermes-agent) | the provider's API key; wins over a key saved with `--set-key` |
+| `PYGYM_API_KEY` | API key for `openai-compatible`, and the last fallback for every provider that takes a key |
+| `PYGYM_HOME` | folder for settings, saved keys (`keys.json`), progress and saved AI exercises (default `~/.pygym`) |
 | `PYGYM_NO_AI=1` | AI mode off completely, no network at all (offline classes, tests) |
 | `PYGYM_NO_TIPS=1` | no tips at your error |
 | `PYGYM_SANDBOX=audit-hook` | switch off the operating-system layer of the sandbox |
@@ -507,7 +577,12 @@ a security boundary. `pygym --status` shows which level you have.
 | `ModuleNotFoundError: No module named 'pygym_cityu'` | import `pygym`, not `pygym_cityu` (see [Install](#install)) |
 | `pygym: command not found` | use `python -m pygym`, or add pip's script folder to your PATH |
 | `No module named 'pygym'` in Jupyter | install into the notebook's own Python: `%pip install pygym-cityu`, then restart the kernel |
-| AI mode shows hand-written exercises | the model is not reachable: `pygym --status` says why; start Ollama, or check your key and the address (`--set-base-url`, with `/v1`) |
+| AI mode shows hand-written exercises | AI is not ready: `pygym --status` says why; start Ollama, or check your key and the address (`--set-base-url`, with `/v1`) |
+| `no API key for ...` | `pygym --set-key NAME` (paste the key), or set the variable it names; then `pygym --status` |
+| `... refused the API key (HTTP 401)` | the key is wrong or expired. `pygym --status` shows where it comes from: an environment variable wins over a saved key |
+| `rate limit or no credits left (HTTP 429)` | wait a minute, check your account's credits, or choose a cheaper or free model (`--set-model`) |
+| `Claude Code is not logged in` / `not installed` | install Claude Code and run `claude` once to log in, or choose another provider |
+| `unknown AI provider` | `pygym --providers` lists the names |
 | AI exercises are slow or strange | try another model (`pygym --set-model ...`); see [Known problems](#known-problems) |
 | The editor looks wrong in your terminal | use the line CLI: `pygym zip --ui text` |
 | No exercise for a function | in preset mode only the 17 built-ins above have exercises; use AI mode for the rest |
@@ -538,19 +613,19 @@ To be solved before 1.0. Measurements are in [docs/AI_MODE.md](docs/AI_MODE.md) 
 8. The content check for AI text is a short word list; it misses things like gendered roles.
 9. Ctrl-C while the AI writes stops the wait, but the request already sent keeps the model
    busy until it finishes.
-10. Only an OpenAI-compatible cloud API with JSON-schema output works with your own key. We
-    tested the key checks against OpenAI's real API (a missing and a wrong key are reported) and
-    full exercise generation through a local OpenAI-compatible server, but not generation on a
-    paid cloud API.
+10. **Not every provider has written a real exercise yet.** A real exercise was generated with
+    `ollama`, `openai-compatible` (Ollama's `/v1` address) and `claude-code` (model `haiku`).
+    For `openai`, `anthropic`, `gemini`, `openrouter` and `groq` only the key check ran against
+    the real API (a made-up key is reported as refused); their exercise requests were tested
+    with fake servers, as were `hermes`, `hermes-agent` and `lmstudio`. The default model names
+    are suggestions and may change.
 
 ## Roadmap
 
 Planned, not built yet:
 
-- **Provider presets**: pick OpenAI, Anthropic, Gemini, OpenRouter or Groq by name in the menu,
-  with their addresses and default models filled in, and `pygym --set-key` to save a key in a
-  private file instead of an environment variable.
-- Provider and address settings inside the main menu (today: flags or `config.json`).
+- Provider, model and key settings inside the main menu (today: the `--set-*` flags or
+  `config.json`).
 - A tkinter window with everything the terminal editor has (see Known problems 3).
 
 ## Development
@@ -561,7 +636,7 @@ cd pygym
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
-pytest                                      # 1742 tests, no network needed (about 2 minutes)
+pytest                                      # 1895 tests, no network needed (about 2 minutes)
 python tools/validate_exercises.py          # check every hand-written exercise
 python tools/validate_exercises.py --fill   # (re)compute expected_outputs from reference solutions
 python tools/validate_exercises.py --levels # list exercises that do not follow the level rules
@@ -603,6 +678,8 @@ src/pygym/
   config.py             settings in ~/.pygym/config.json
   progress.py           local progress in ~/.pygym/
   ai/                   AI mode: targets, use cases, prompt, examples, providers, checks, levels, cache
+  ai/registry.py        the AI providers: names, addresses, key variables, default models
+  ai/keys.py            API keys: environment variables and ~/.pygym/keys.json
 tests/                  pytest suite
 tools/                  exercise validator, Python 3.9 check, real-machine checks
 experiments/            throwaway trials, not part of the package

@@ -25,6 +25,7 @@ DEFAULT_TIMEOUT = 60.0           # seconds for one exercise (config: ai_timeout)
 MAX_TOKENS = 900                 # 700 cut 5 of 103 measured replies (all then invalid JSON)
 BASE_TEMPERATURE = 0.8
 STATUS_TTL = 10.0
+LIVE_CHECK_TIMEOUT = 6.0          # seconds pygym --status waits for a live check of a cloud API
 
 clock: Callable[[], float] = time.monotonic   # tests replace this with a fake clock
 
@@ -63,12 +64,39 @@ def status(settings: Optional[config.Settings] = None) -> AIStatus:
             return hit[1]
         try:
             provider = get_provider(settings)
-            ok, message = provider.ping(ping_timeout(getattr(provider, "base_url", key[2])))
+            # 0.5 s on this computer, 6 s for a cloud address, longer if the provider asks for it
+            wait = ping_timeout(getattr(provider, "base_url", key[2]),
+                                getattr(provider, "spec", None))
+            ok, message = provider.ping(wait)
+            model = str(getattr(provider, "model", "") or model)   # "" in config = its default
         except ProviderError as e:
             ok, message = False, str(e)
         result = AIStatus(bool(ok), provider_name, model, message)
         _status_cache[key] = (now, result)
         return result
+    except Exception as e:  # noqa: BLE001
+        return AIStatus(False, "", "", f"AI status unknown ({type(e).__name__})")
+
+
+def live_check(settings: Optional[config.Settings] = None) -> Optional[AIStatus]:
+    """The provider's live check (`Provider.check`): for a cloud API this asks the server whether
+    it accepts the key and offers the model, which status() does not do (it counts a cloud
+    provider as ready as soon as a key exists, so the menu never waits on the internet).
+    For `pygym --status`. None when AI mode is turned off (PYGYM_NO_AI). Never raises."""
+    try:
+        settings = settings or config.load()
+        if _turned_off():
+            return None
+        provider_name = str(getattr(settings, "provider", ""))
+        try:
+            provider = get_provider(settings)
+            wait = max(ping_timeout(getattr(provider, "base_url", ""), getattr(provider, "spec", None)),
+                       LIVE_CHECK_TIMEOUT)
+            ok, message = provider.check(wait)
+            model = str(getattr(provider, "model", "") or getattr(settings, "model", ""))
+        except ProviderError as e:
+            ok, message, model = False, str(e), str(getattr(settings, "model", ""))
+        return AIStatus(bool(ok), provider_name, model, message)
     except Exception as e:  # noqa: BLE001
         return AIStatus(False, "", "", f"AI status unknown ({type(e).__name__})")
 
