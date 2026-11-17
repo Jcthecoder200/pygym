@@ -25,6 +25,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   (`provider`, `base_url`, `PYGYM_API_KEY`), all settings and environment variables,
   troubleshooting, a roadmap (provider presets) and an index of the other
   docs. Status, test count and known problems updated for 0.3.0.
+- README: "Why pygym" (the problem and who it is for), "How it works" (two diagrams: the
+  command -> Session -> grader -> sandbox loop, and where exercises come from), and three images
+  of real output: the tip under a traceback and the exercise flow in an executed notebook, and
+  `--set-provider` + `--status`. `experiments/readme_shots.py` rebuilds them.
 
 ## [0.3.0] - 2026-11-16
 ### Tests

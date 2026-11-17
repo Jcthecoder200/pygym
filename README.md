@@ -19,12 +19,32 @@ exercise with a local model (the progress bar runs in real time).*
 > **Status: 0.3.0, a CityU student project.** Hand-written exercises work fully offline.
 > AI mode is experimental: read [Known problems](#known-problems) before you rely on it.
 
+## Why pygym
+
+You are writing code, `zip` does something you did not expect, and the error message does not
+help. Usually you would leave your editor, search, read a tutorial and come back. pygym brings
+the lesson to where you are coding instead:
+
+- **It starts from using, not from a course.** When your code crashes, the tip under the
+  traceback names the built-in on the failing line. One command and you are practising it.
+- **You write real code.** Each exercise asks for a small function that must actually use the
+  built-in, and it is checked against several tests, not multiple choice.
+- **It teaches, it does not grade.** Hints and the solution are there when you ask; retries and
+  skips are unlimited; your progress stays on your computer.
+- **It is light.** `pip install` and go: one dependency, works offline, in the terminal,
+  Jupyter/Colab or a small window. AI mode is optional.
+
+Who it is for: university students learning Python, and anyone who wants to practise one
+function at a time.
+
 ## Contents
 
+- [Why pygym](#why-pygym)
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Tested setup](#tested-setup)
 - [Features](#features)
+- [How it works](#how-it-works)
 - [Command line](#command-line)
 - [Inside an exercise](#inside-an-exercise)
 - [Jupyter and Google Colab](#jupyter-and-google-colab)
@@ -138,6 +158,49 @@ Parts most likely to behave differently on your machine:
 - **A sandbox**: your code runs in a separate process, in a temporary folder, with file and
   network access blocked.
 
+## How it works
+
+Every front-end (editor, line CLI, tkinter, Jupyter) is thin: it collects your code and a
+command and sends both to one `Session`, which owns all the rules. Checking happens in a
+separate sandbox process.
+
+```mermaid
+flowchart LR
+    A["Your code + a command<br/>(editor, CLI, tkinter, Jupyter)"] --> B["Session.handle<br/>(:w, :h, :s, :level ...)"]
+    B --> C["Grader"]
+    C --> D["Sandbox process<br/>(temp folder, no network)"]
+    D --> E["Results<br/>pass / fail per test"]
+    E --> A
+```
+
+1. **You run a command.** `:w` sends your code to `Session.handle`, the one place where every
+   command's rules live. The front-end only shows the `Response` it gets back.
+2. **The grader checks your function** in a separate process with a time limit: each test's
+   return value is compared with the expected one, and your function must really use the
+   built-in (a version without `zip` fails even if the output is right).
+3. **You see every test**: the call, the expected value, your value and your `print()` output.
+   Three solved exercises at one level move you up a level.
+
+Where exercises come from:
+
+```mermaid
+flowchart LR
+    P["Preset mode<br/>83 hand-written exercises"] --> S["Session"]
+    M["AI mode: the model writes<br/>question, solution, test inputs"] --> V["Checks in the sandbox<br/>runs, uses the function, fits the level"]
+    V -->|"passes"| S
+    V -->|"fails: ask again"| M
+```
+
+- **Preset mode** reads `data/exercises.json`. Every exercise there is checked by
+  `tools/validate_exercises.py`.
+- **AI mode** never trusts the model's answers. Its reference solution runs in the sandbox on
+  its own test inputs, and the values it returns *become* the expected outputs. Replies that do
+  not run, do not use the function or do not fit the level are rejected, and the model is asked
+  again until one passes or `ai_timeout` (60 s) runs out; then pygym falls back to the
+  hand-written exercises. Accepted exercises are saved in `~/.pygym/generated/`.
+- **Tips at your error** need no model at all: pygym reads the traceback and the failing line
+  and names the built-ins on it that have exercises.
+
 ## Command line
 
 `pygym` with no arguments opens the main menu. Everything else:
@@ -216,6 +279,11 @@ has no input box):
 | `%pygym :q` | end the exercise |
 | `%load_ext pygym` | tips at your error for this notebook (see below) |
 
+![A Jupyter notebook: exercise("zip") shows the task, a %%pygym :w cell with a wrong answer fails 0 of 3 tests, the fixed answer passes 3 of 3](docs/media/jupyter_flow.png)
+
+*A real notebook run: the task, a wrong answer (a list instead of a dict, 0/3) and the fix
+(3/3). The intro panel that `exercise()` prints first is hidden here to save space.*
+
 ## Tips at your error
 
 When your own code crashes, pygym reads the failing line. If it uses a built-in that has an
@@ -225,6 +293,10 @@ exercise, one line appears under the normal error:
 TypeError: 'int' object is not iterable
 pygym: this line uses zip() and len(); 30-second exercise? exercise('zip')
 ```
+
+![A notebook cell crashes with TypeError: 'int' object is not iterable; under the traceback pygym says: this line uses zip(); 30-second exercise? exercise('zip')](docs/media/error_tip.png)
+
+*A real notebook run: the cell crashes, and pygym's tip appears under the normal traceback.*
 
 Type that command and you are in the exercise. The tip comes from the traceback and the source
 line, not from an AI: it is instant, offline and the same every time. In AI mode, functions of
@@ -357,6 +429,10 @@ setx PYGYM_API_KEY "sk-..."              # Windows, for new windows from now on
 ```python
 import os; os.environ["PYGYM_API_KEY"] = "sk-..."   # Colab / Jupyter, before exercise(...)
 ```
+
+![Terminal: pygym --set-provider openai --set-base-url http://localhost:11434/v1 saves the settings, then pygym --status shows provider openai, API key set, AI ready](docs/media/status.svg)
+
+*A real run against Ollama's OpenAI-compatible address with a dummy key.*
 
 **3. Check it**: `pygym --status` shows the provider, the address, whether a key is set (never
 the key itself) and `AI ready`. If it is not ready it says why, for example
