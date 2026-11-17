@@ -4,6 +4,29 @@ All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- `pygym --set-provider ollama|openai` and `pygym --set-base-url URL`: use your own
+  OpenAI-compatible model or API key without editing `config.json`. After saving, pygym says what
+  is still missing (the address, or `PYGYM_API_KEY` for a server that is not on this computer).
+  `--set-provider ollama` puts Ollama's address back unless `--set-base-url` is given too.
+- `pygym --status` has an `API key` line (set / not set, never the key) and, when AI mode is not
+  ready, the reason: no server, model not offered, "needs an API key (HTTP 401)" or "refused the
+  API key".
+### Fixed
+- AI mode never worked with a cloud API: the "is AI ready?" check waited 0.5 s, but OpenAI,
+  Gemini and OpenRouter took 2.6-4.6 s to answer `GET /models` (measured from Hong Kong), so AI
+  mode always fell back to the hand-written exercises. Servers on this computer still get 0.5 s;
+  others get 6 s (`providers.ping_timeout`).
+### Docs
+- README rewritten as the one front page: install vs import name (`pip install pygym-cityu`,
+  `import pygym`), quick start for terminal / Python / Jupyter, tested setup, every command-line
+  flag and menu key, editor and Jupyter commands, the Python API (`exercise`, `Session`,
+  `Response`, `config`, `tips`), how to use your own OpenAI-compatible model and API key
+  (`provider`, `base_url`, `PYGYM_API_KEY`), all settings and environment variables,
+  troubleshooting, a roadmap (provider presets) and an index of the other
+  docs. Status, test count and known problems updated for 0.3.0.
+
+## [0.3.0] - 2026-11-16
 ### Tests
 - The suite now runs on Windows. Found by running it on Windows 10/11 with Python 3.9: tests that assumed Linux
   (the Windows default front-end is tk, bwrap paths, symlink rights, a memory limit that Windows does not have
