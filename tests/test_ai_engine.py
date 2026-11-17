@@ -6,7 +6,7 @@ import urllib.request
 import pytest
 
 from pygym import ai, config, loader
-from pygym.ai import cache, engine
+from pygym.ai import cache, engine, providers
 from pygym.ai.prompt import SCHEMA
 from pygym.ai.providers import FakeProvider, ProviderError
 from pygym.session import Session
@@ -263,6 +263,20 @@ def test_available_never_raises(monkeypatch):
         raise RuntimeError("broken")
     monkeypatch.setattr(engine, "get_provider", boom)
     assert ai.available() is False
+
+
+def test_status_waits_longer_for_a_cloud_server(monkeypatch):
+    monkeypatch.delenv("PYGYM_NO_AI", raising=False)
+    seen = []
+
+    class Slow:
+        base_url = "https://api.example.com/v1"
+
+        def ping(self, timeout=0.5):
+            seen.append(timeout)
+            return True, "ok"
+    monkeypatch.setattr(engine, "get_provider", lambda settings: Slow())
+    assert ai.status().ok and seen == [providers.REMOTE_PING_TIMEOUT]
 
 
 def test_status_uses_the_provider_ping_and_is_cached(use):

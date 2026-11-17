@@ -20,6 +20,7 @@ import difflib
 import importlib
 import importlib.util
 import io
+import os
 import sys
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -32,6 +33,7 @@ from rich.text import Text
 
 from . import __version__, ai, config, loader, sandbox, style, tips, ui
 from ._runner import denied_reason
+from .ai.providers import API_KEY_ENV, is_local
 from .loader import ExerciseUnavailable
 # LEVELS and parse_level live in session (the :level command uses them too); kept importable here.
 from .session import LEVELS, Job, Session, parse_level  # noqa: F401
@@ -57,6 +59,9 @@ _NOT_EXERCISES = frozenset({
     "staticmethod", "classmethod",
 })
 _PROMPT_STYLE = "bold yellow"
+# AI providers that --set-provider accepts (ai.providers.get_provider knows them).
+PROVIDERS = ("ollama", "openai")
+OLLAMA_URL = "http://localhost:11434"  # Ollama's default address (config.Settings().base_url)
 def _ai_timeout_text() -> str:
     return f"up to {config.load().ai_timeout} s"
 
@@ -671,6 +676,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="tips under your tracebacks: on = always (no import needed), off, status")
     p.add_argument("--set-mode", choices=config.MODES, metavar="MODE", help="save the default mode")
     p.add_argument("--set-model", metavar="NAME", help="save the model used by AI mode")
+    p.add_argument("--set-provider", choices=PROVIDERS, metavar="PROVIDER",
+                   help="save the AI provider: ollama (default) or openai (any OpenAI-compatible "
+                   "server; the API key goes in the PYGYM_API_KEY environment variable)")
+    p.add_argument("--set-base-url", metavar="URL",
+                   help="save the AI server's address, e.g. https://api.openai.com/v1")
     p.add_argument("--version", action="version", version=f"pygym {__version__}")
     return p
 
@@ -717,9 +727,25 @@ def main(argv: Optional[Sequence[str]] = None, *, console: Optional[Console] = N
             return 2
         settings.model = args.set_model.strip()
         changed = True
+    if args.set_base_url is not None:
+        url = args.set_base_url.strip().rstrip("/")
+        if not url.lower().startswith(("http://", "https://")):
+            console.print(Text("The address must start with http:// or https://, e.g. "
+                               "https://api.openai.com/v1", style=style.PALETTE["fail"]))
+            return 2
+        settings.base_url = url
+        changed = True
+    if args.set_provider and args.set_provider != settings.provider:
+        settings.provider = args.set_provider
+        changed = True
+        if args.set_provider == "ollama" and args.set_base_url is None:
+            settings.base_url = OLLAMA_URL  # an OpenAI address never works for Ollama's own API
     if changed:
         _save(settings, console)
-        console.print(Text(f"Saved: mode={settings.mode}, model={settings.model}", style=muted))
+        console.print(Text(f"Saved: mode={settings.mode}, provider={settings.provider}, "
+                           f"model={settings.model}, address={settings.base_url}", style=muted))
+        for hint in _provider_hints(settings):
+            console.print(Text(hint, style=style.PALETTE["refused"]))
 
     if args.tips:
         return _tips_command(console, args.tips)
@@ -768,8 +794,39 @@ def _print_list(console: Console, library: str) -> int:
     return 0
 
 
+def _provider_hints(settings: config.Settings) -> List[str]:
+    """What is still missing for the saved provider (empty when nothing obvious is)."""
+    hints = []
+    if settings.provider == "openai":
+        if settings.base_url == OLLAMA_URL:
+            hints.append("Set the server address too: pygym --set-base-url URL "
+                         "(with /v1, e.g. https://api.openai.com/v1)")
+        elif not settings.base_url.rstrip("/").endswith("/v1") and "/v1" not in settings.base_url:
+            hints.append("Most OpenAI-compatible addresses end in /v1. If AI mode is not ready, "
+                         "check the address.")
+        if not os.environ.get(API_KEY_ENV, "").strip() and not is_local(settings.base_url):
+            hints.append(f"No API key yet: set the {API_KEY_ENV} environment variable "
+                         "(it is never saved in pygym's settings).")
+    return hints
+
+
+def _key_cell(settings: config.Settings) -> str:
+    """The API key line of --status. Never shows the key itself."""
+    if settings.provider != "openai":
+        return "not needed (Ollama)"
+    if os.environ.get(API_KEY_ENV, "").strip():
+        return f"set ({API_KEY_ENV})"
+    return f"not set ({API_KEY_ENV}; a local server may not need one)"
+
+
 def _print_status(console: Console, settings: config.Settings) -> None:
-    ready = _ai_ready()
+    ready, reason = _ai_ready(), ""
+    if not ready:
+        try:  # why not: no server, wrong model, a refused API key... (cached, never raises)
+            state = ai.status(settings)
+            reason = "" if state.ok else state.message
+        except Exception:  # noqa: BLE001  (--status must never crash)
+            reason = ""
     table = Table(show_header=False, box=None, padding=(0, 2, 0, 0), pad_edge=False)
     table.add_column(style=style.PALETTE["muted"])
     table.add_column()
@@ -779,11 +836,13 @@ def _print_status(console: Console, settings: config.Settings) -> None:
     table.add_row("provider", settings.provider)
     table.add_row("model", settings.model)
     table.add_row("address", settings.base_url)
+    table.add_row("API key", _key_cell(settings))
     table.add_row("prefetch", "on (the next AI exercise is written while you work)"
                   if settings.prefetch else "off")
     table.add_row("AI time", f"up to {settings.ai_timeout} s per exercise")
     table.add_row("AI", Text("ready", style=style.PALETTE["pass"]) if ready
-                  else Text("not reachable (AI mode falls back to preset)", style=style.PALETTE["fail"]))
+                  else Text("not reachable (AI mode falls back to preset)"
+                            + (f": {reason}" if reason else ""), style=style.PALETTE["fail"]))
     table.add_row("sandbox", _sandbox_cell())
     for name, value in _tips_rows():
         table.add_row(name, value)

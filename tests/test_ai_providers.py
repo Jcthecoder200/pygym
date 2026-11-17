@@ -131,6 +131,26 @@ def test_openai_errors_and_ping(http):
     assert p.ping()[0] is False
 
 
+def test_openai_ping_explains_a_missing_or_refused_key(http):
+    http.answer = urllib.error.HTTPError("u", 401, "no", {}, io.BytesIO(b"bad key"))
+    ok, why = OpenAICompatProvider("m", "https://api.example.com/v1", api_key="").ping()
+    assert ok is False and "needs an API key" in why and "PYGYM_API_KEY" in why
+    ok, why = OpenAICompatProvider("m", "https://api.example.com/v1", api_key="wrong").ping()
+    assert ok is False and "refused the API key" in why and "wrong" not in why
+    http.answer = urllib.error.URLError("down")
+    assert "no OpenAI-compatible server" in OpenAICompatProvider("m", "http://x/v1", api_key="k").ping()[1]
+
+
+@pytest.mark.parametrize("url, local", [
+    ("http://localhost:11434", True), ("http://127.0.0.1:1234/v1", True), ("http://[::1]:8080/v1", True),
+    ("https://api.openai.com/v1", False), ("http://192.168.1.5:11434", False), ("", False),
+])
+def test_cloud_servers_get_time_to_answer_the_ready_check(url, local):
+    assert providers.is_local(url) is local
+    assert providers.ping_timeout(url) == (0.5 if local else providers.REMOTE_PING_TIMEOUT)
+    assert providers.REMOTE_PING_TIMEOUT >= 5      # measured: cloud APIs take 2.6-4.6 s
+
+
 def test_api_key_is_never_saved_in_config():
     assert "api_key" not in {f for f in vars(config.Settings())}
 

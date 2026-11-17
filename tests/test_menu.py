@@ -558,6 +558,62 @@ def test_set_mode_and_set_model():
     assert rc == 0 and (s.mode, s.model) == ("ai", "qwen2.5:3b")
 
 
+def test_set_provider_and_base_url_for_your_own_api_key(monkeypatch):
+    monkeypatch.setenv("PYGYM_API_KEY", "sk-test")
+    rc, console, starts = cli("--set-provider", "openai", "--set-base-url", "https://api.example.com/v1/",
+                              "--set-model", "some-model")
+    s = config.load()
+    assert rc == 0 and starts.choices == []
+    assert (s.provider, s.base_url, s.model) == ("openai", "https://api.example.com/v1", "some-model")
+    assert "provider=openai" in output(console) and "No API key" not in output(console)
+
+
+def test_set_provider_openai_alone_asks_for_the_address_then_the_key(monkeypatch):
+    monkeypatch.delenv("PYGYM_API_KEY", raising=False)
+    rc, console, _ = cli("--set-provider", "openai")
+    assert rc == 0 and config.load().provider == "openai"
+    assert "--set-base-url" in output(console)
+    rc, console, _ = cli("--set-base-url", "https://api.example.com/v1")
+    assert rc == 0 and "PYGYM_API_KEY" in output(console)
+
+
+def test_local_openai_server_needs_no_key_hint(monkeypatch):
+    monkeypatch.delenv("PYGYM_API_KEY", raising=False)
+    rc, console, _ = cli("--set-provider", "openai", "--set-base-url", "http://localhost:1234/v1")
+    assert rc == 0 and "No API key" not in output(console)
+
+
+def test_back_to_ollama_resets_the_address():
+    cli("--set-provider", "openai", "--set-base-url", "https://api.example.com/v1")
+    cli("--set-provider", "ollama")
+    s = config.load()
+    assert (s.provider, s.base_url) == ("ollama", "http://localhost:11434")
+
+
+def test_ollama_on_another_computer_keeps_its_address():
+    cli("--set-provider", "ollama", "--set-base-url", "http://192.168.1.5:11434")
+    assert config.load().base_url == "http://192.168.1.5:11434"
+
+
+@pytest.mark.parametrize("bad", ["api.openai.com/v1", "ftp://x", " "])
+def test_bad_base_url_is_rejected(bad):
+    rc, console, _ = cli("--set-base-url", bad)
+    assert rc == 2 and config.load().base_url == config.Settings().base_url
+
+
+def test_unknown_provider_is_exit_code_2():
+    assert cli("--set-provider", "skynet")[0] == 2
+
+
+def test_status_shows_the_key_but_never_its_value(monkeypatch):
+    monkeypatch.setenv("PYGYM_API_KEY", "sk-very-secret")
+    cli("--set-provider", "openai", "--set-base-url", "https://api.example.com/v1")
+    rc, console, _ = cli("--status")
+    text = output(console)
+    assert rc == 0 and "set (PYGYM_API_KEY)" in text and "sk-very-secret" not in text
+    assert "not reachable" in text and "turned off" in text     # the reason is shown too
+
+
 def test_empty_model_is_rejected():
     assert cli("--set-model", " ")[0] == 2
     assert config.load().model == config.Settings().model

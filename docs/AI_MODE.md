@@ -234,7 +234,10 @@ Environment variables:
 ### Other servers (LM Studio, llama.cpp, vLLM, hosted APIs)
 
 Set `provider` to `"openai"` and `base_url` to the server's address **including `/v1`**, for
-example `"http://localhost:1234/v1"` for LM Studio. The server must support JSON-schema
+example `"http://localhost:1234/v1"` for LM Studio. The flags do the same:
+`pygym --set-provider openai --set-base-url http://localhost:1234/v1 --set-model NAME`
+(`pygym --set-provider ollama` goes back). The "is AI ready?" check waits 0.5 s for a server on
+this computer and 6 s for any other address (cloud APIs took 2.6-4.6 s). The server must support JSON-schema
 structured output (`response_format` of type `json_schema`).
 
 ## Privacy

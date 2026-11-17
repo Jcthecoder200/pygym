@@ -12,7 +12,7 @@ from .. import config
 from ..models import Exercise
 from . import cache, usecases
 from .prompt import build_messages, schema_for, self_review_messages
-from .providers import ProviderError, get_provider
+from .providers import ProviderError, get_provider, ping_timeout
 from .targets import TargetInfo, UnknownTarget, resolve
 from .validate import InvalidExercise, to_exercise
 
@@ -63,7 +63,7 @@ def status(settings: Optional[config.Settings] = None) -> AIStatus:
             return hit[1]
         try:
             provider = get_provider(settings)
-            ok, message = provider.ping(0.5)
+            ok, message = provider.ping(ping_timeout(getattr(provider, "base_url", key[2])))
         except ProviderError as e:
             ok, message = False, str(e)
         result = AIStatus(bool(ok), provider_name, model, message)

@@ -12,10 +12,26 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 API_KEY_ENV = "PYGYM_API_KEY"
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+LOCAL_PING_TIMEOUT = 0.5    # seconds: a server on this computer answers at once
+REMOTE_PING_TIMEOUT = 6.0   # a cloud API took 2.6-4.6 s for GET /models (measured from Hong Kong)
+
+
+def is_local(base_url: str) -> bool:
+    """True if the address is this computer (localhost, 127.0.0.1, ::1)."""
+    host = (urllib.parse.urlparse(base_url or "").hostname or "").lower()
+    return host in LOCAL_HOSTS
+
+
+def ping_timeout(base_url: str) -> float:
+    """How long the "is AI ready?" check waits. 0.5 s was too short for every cloud API, so AI
+    mode silently fell back to the hand-written exercises there."""
+    return LOCAL_PING_TIMEOUT if is_local(base_url) else REMOTE_PING_TIMEOUT
 
 
 class ProviderError(Exception):
@@ -172,6 +188,14 @@ class OpenAICompatProvider(Provider):
     def ping(self, timeout: float = 0.5) -> Tuple[bool, str]:
         try:
             listing = _http("GET", f"{self.base_url}/models", None, self._headers(), timeout)
+        except ProviderError as e:
+            text = str(e)
+            if text.startswith(("HTTP 401", "HTTP 403")):   # the server is there, the key is not ok
+                code = text.split(" from ")[0]
+                if not self.api_key:
+                    return False, f"{self.base_url} needs an API key ({code}): set {API_KEY_ENV}"
+                return False, f"{self.base_url} refused the API key in {API_KEY_ENV} ({code})"
+            return False, f"no OpenAI-compatible server at {self.base_url}"
         except Exception:  # noqa: BLE001
             return False, f"no OpenAI-compatible server at {self.base_url}"
         ids = {m.get("id") for m in listing.get("data", []) if isinstance(m, dict)} \
