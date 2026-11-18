@@ -2,7 +2,7 @@
 from . import tips
 from .loader import ExerciseUnavailable, available_functions
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __all__ = ["exercise", "available_functions", "ExerciseUnavailable", "Session", "tips"]
 
 
