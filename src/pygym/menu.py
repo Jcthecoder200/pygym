@@ -7,6 +7,9 @@
     pygym --list [LIBRARY]             libraries, or the functions in one (★ = hand-checked exercises)
     pygym --status                     current settings and whether AI mode can run
     pygym --tips on|off|status         tips under your tracebacks, always on / off (see pygym.tips)
+    pygym --providers                  the AI providers, their keys and who receives the prompt
+    pygym --set-provider NAME          choose one (ollama, openai, anthropic, gemini, ...)
+    pygym --set-key NAME               save its API key (asked for, hidden; never an argument)
 
 This module only chooses WHICH exercise to start. The rules inside an exercise are in `Session`,
 the windows are in `ui`, and the AI engine is in `pygym.ai`.
@@ -17,9 +20,11 @@ import argparse
 import builtins
 import contextlib
 import difflib
+import getpass
 import importlib
 import importlib.util
 import io
+import os
 import sys
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -32,6 +37,8 @@ from rich.text import Text
 
 from . import __version__, ai, config, loader, sandbox, style, tips, ui
 from ._runner import denied_reason
+from .ai import keys, registry
+from .ai.providers import is_local, key_fix
 from .loader import ExerciseUnavailable
 # LEVELS and parse_level live in session (the :level command uses them too); kept importable here.
 from .session import LEVELS, Job, Session, parse_level  # noqa: F401
@@ -57,6 +64,13 @@ _NOT_EXERCISES = frozenset({
     "staticmethod", "classmethod",
 })
 _PROMPT_STYLE = "bold yellow"
+# AI providers that --set-provider accepts (their aliases too): the table in ai.registry.
+PROVIDERS = registry.names()
+OLLAMA_URL = registry.PROVIDERS["ollama"].base_url  # config.Settings().base_url
+# --set-model default / --set-base-url default: back to the provider's own (saved as "").
+DEFAULT_WORD = "default"
+
+
 def _ai_timeout_text() -> str:
     return f"up to {config.load().ai_timeout} s"
 
@@ -229,12 +243,13 @@ def home_panel(settings: config.Settings, ai_ready: bool) -> RenderableType:
     grid.add_column(no_wrap=True, width=7, style=muted)
     grid.add_column(ratio=1)
     grid.add_column(justify="right", no_wrap=True, style=style.PALETTE["command"])
+    name, model, address = _ai_target(settings)
     if ai_ready:
         ai_cell = Text.assemble(("✓ ready", style.PALETTE["pass"]),
-                                (f" · {settings.provider} · {settings.model}", muted))
+                                (f" · {name} · {model}", muted))
     else:
         ai_cell = Text.assemble(("✗ offline", style.PALETTE["fail"]),
-                                (f" · no answer from {settings.base_url}", muted))
+                                (f" · no answer from {address or name}", muted))
     level_name = LEVELS.get(settings.level, "beginner")
     grid.add_row("Mode", _mode_cell(settings.mode), "m  switch mode")
     grid.add_row("AI", ai_cell, "")
@@ -342,6 +357,24 @@ def help_panel() -> RenderableType:
 
 class _Quit(Exception):
     """The student asked to leave (q, Ctrl-C or Ctrl-D)."""
+
+
+def _resolved(settings: config.Settings) -> Optional[registry.Resolved]:
+    """The provider, address and model the settings mean ("" = the provider's default), or
+    None for a provider name pygym does not know."""
+    try:
+        return registry.resolve(settings)
+    except registry.UnknownProvider:
+        return None
+
+
+def _ai_target(settings: config.Settings) -> Tuple[str, str, str]:
+    """(provider name, model, address) for one-line displays. Never raises."""
+    chosen = _resolved(settings)
+    if chosen is None:
+        return settings.provider, settings.model, settings.base_url
+    model = chosen.model or "its first model"
+    return chosen.spec.name, model, chosen.base_url
 
 
 def _ai_ready() -> bool:
@@ -614,7 +647,7 @@ def start(choice: Choice, console: Console, *,
     try:
         if may_use_ai and _ai_ready():
             # The same progress bar as :s in the line CLI (the model may take up to ai_timeout s).
-            console.print(Text(f"Writing a new exercise with {settings.model} … "
+            console.print(Text(f"Writing a new exercise with {_ai_target(settings)[1]} … "
                                f"({_ai_timeout_text()})", style=style.PALETTE["muted"]))
             job = Job(lambda report: Session(choice.target, choice.level, choice.mode,
                                              on_progress=report, **extra))
@@ -670,7 +703,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tips", choices=("on", "off", "status"),
                    help="tips under your tracebacks: on = always (no import needed), off, status")
     p.add_argument("--set-mode", choices=config.MODES, metavar="MODE", help="save the default mode")
-    p.add_argument("--set-model", metavar="NAME", help="save the model used by AI mode")
+    p.add_argument("--set-model", metavar="NAME",
+                   help="save the model used by AI mode ('default' = the provider's own)")
+    p.add_argument("--set-provider", metavar="NAME",
+                   help="save the AI provider: " + ", ".join(PROVIDERS) + " (pygym --providers "
+                   "describes them; the address and model go back to the provider's defaults)")
+    p.add_argument("--set-base-url", metavar="URL",
+                   help="save the AI server's address, e.g. http://localhost:8080/v1 "
+                   "('default' = the provider's own)")
+    p.add_argument("--set-key", metavar="PROVIDER",
+                   help="save an API key for PROVIDER in PYGYM_HOME/keys.json (only you can read "
+                   "it). pygym asks for the key without showing it; never type it on the command "
+                   "line")
+    p.add_argument("--forget-key", metavar="PROVIDER", help="delete the saved key of PROVIDER")
+    p.add_argument("--providers", action="store_true",
+                   help="list the AI providers: keys, default models, who receives the prompt")
     p.add_argument("--version", action="version", version=f"pygym {__version__}")
     return p
 
@@ -707,20 +754,90 @@ def main(argv: Optional[Sequence[str]] = None, *, console: Optional[Console] = N
     settings = config.load()
     muted = style.PALETTE["muted"]
 
+    fail = style.PALETTE["fail"]
+    # Key flags first, before anything is saved. Their value is never printed: someone who typed
+    # the key itself (--set-key sk-...) must not see it again on the screen or in a log.
+    key_specs: Dict[str, registry.ProviderSpec] = {}
+    for flag, value in (("--set-key", args.set_key), ("--forget-key", args.forget_key)):
+        if value is None:
+            continue
+        if args.target:
+            console.print(Text(f"{flag} takes only a provider name. Never put an API key on the "
+                               "command line (it stays in your shell history); pygym asks for it.",
+                               style=fail))
+            return 2
+        try:
+            key_specs[flag] = registry.get_spec(value)
+        except registry.UnknownProvider:
+            console.print(Text(f"{flag} needs a provider name, one of: {', '.join(PROVIDERS)}. "
+                               "(pygym asks for the key itself; never type it on the command "
+                               "line.)", style=fail))
+            return 2
+    if "--set-key" in key_specs and not key_specs["--set-key"].accepts_key:
+        console.print(Text(f"{key_specs['--set-key'].title} takes no API key in pygym.",
+                           style=fail))
+        return 2
+
     changed = False
     if args.set_mode:
         settings.mode = args.set_mode
         changed = True
     if args.set_model:
         if not args.set_model.strip():
-            console.print(Text("The model name can not be empty.", style=style.PALETTE["fail"]))
+            console.print(Text("The model name can not be empty.", style=fail))
             return 2
-        settings.model = args.set_model.strip()
+        model = args.set_model.strip()
+        settings.model = "" if model.lower() == DEFAULT_WORD else model
         changed = True
+    if args.set_base_url is not None:
+        url = args.set_base_url.strip().rstrip("/")
+        if url.lower() == DEFAULT_WORD:
+            url = ""
+        elif not url.lower().startswith(("http://", "https://")):
+            console.print(Text("The address must start with http:// or https://, e.g. "
+                               "http://localhost:8080/v1", style=fail))
+            return 2
+        settings.base_url = url
+        changed = True
+    if args.set_provider:
+        try:
+            spec = registry.get_spec(args.set_provider)
+        except registry.UnknownProvider as e:
+            why = str(e)
+            console.print(Text(f"{why[:1].upper()}{why[1:]}. pygym --providers describes them.",
+                               style=fail))
+            return 2
+        before = _resolved(settings)
+        settings.provider = spec.name
+        changed = True          # also when it is the same: show it and what is missing, no menu
+        # Another provider: its own address and model, never the old ones ("" = its default).
+        # The same provider under a new name (old "openai" + a custom address read as
+        # "openai-compatible") keeps them.
+        if before is None or before.spec.name != spec.name:
+            if args.set_base_url is None and settings.base_url:
+                settings.base_url = ""
+                changed = True
+            if args.set_model is None and settings.model:
+                settings.model = ""
+                changed = True
     if changed:
         _save(settings, console)
-        console.print(Text(f"Saved: mode={settings.mode}, model={settings.model}", style=muted))
+        console.print(Text(_saved_line(settings), style=muted))
 
+    if args.set_key is not None:
+        rc = _set_key_command(console, key_specs["--set-key"], settings)
+        if rc:
+            return rc
+    if args.forget_key is not None:
+        _forget_key_command(console, key_specs["--forget-key"])
+    if changed or args.set_key is not None:
+        for hint in _provider_hints(settings, just_set=args.set_provider):
+            console.print(Text(hint, style=style.PALETTE["refused"]))
+    keys_done = args.set_key is not None or args.forget_key is not None
+
+    if args.providers:
+        _print_providers(console, settings)
+        return 0
     if args.tips:
         return _tips_command(console, args.tips)
     if args.list is not None:
@@ -749,7 +866,7 @@ def main(argv: Optional[Sequence[str]] = None, *, console: Optional[Console] = N
         console.print(Text(f"Saved: mode={settings.mode}, level={LEVELS[settings.level]}, "
                            f"window={settings.ui}", style=muted))
         return 0
-    if changed:
+    if changed or keys_done:
         return 0
     return run_menu(console=console, input_fn=input_fn, start_fn=start_fn)
 
@@ -768,22 +885,228 @@ def _print_list(console: Console, library: str) -> int:
     return 0
 
 
+def _model_text(chosen: registry.Resolved) -> str:
+    spec = chosen.spec
+    if not chosen.model:
+        return ("not set (pygym --set-model NAME)" if spec.model_required
+                else "the first model the server lists")
+    return f"{chosen.model} (default)" if chosen.model == spec.model else chosen.model
+
+
+def _address_text(chosen: registry.Resolved) -> str:
+    spec = chosen.spec
+    if spec.kind == "claude-code":
+        return "none (the `claude` command on this computer)"
+    if not chosen.base_url:
+        return "not set (pygym --set-base-url URL)"
+    return f"{chosen.base_url} (default)" if chosen.base_url == spec.base_url else chosen.base_url
+
+
+def _receiver(spec: registry.ProviderSpec, base_url: str) -> str:
+    """Who receives the prompt (the function's name and documentation; never your code)."""
+    if spec.company:
+        return spec.company
+    if spec.kind == "claude-code":
+        return "Anthropic"
+    if base_url and is_local(base_url):
+        return "nobody else: it stays on this computer"
+    if base_url:
+        host = base_url.split("://", 1)[-1].split("/", 1)[0]
+        return f"the server at {host}"
+    return "the server you set (pygym --set-base-url URL)"
+
+
+def _saved_line(settings: config.Settings) -> str:
+    chosen = _resolved(settings)
+    if chosen is None:
+        return (f"Saved: mode={settings.mode}, provider={settings.provider} (unknown), "
+                f"model={settings.model}, address={settings.base_url}")
+    return (f"Saved: mode={settings.mode}, provider={settings.provider}, "
+            f"model={_model_text(chosen)}, address={_address_text(chosen)}")
+
+
+def _provider_hints(settings: config.Settings, just_set: Optional[str] = None) -> List[str]:
+    """What is still missing for the saved provider (empty when nothing obvious is): no
+    address, no model, a key that keys.get_key cannot find. Never the key itself."""
+    chosen = _resolved(settings)
+    if chosen is None:
+        return [f"pygym does not know the AI provider '{settings.provider}': "
+                "pygym --set-provider NAME (pygym --providers lists them)"]
+    spec, hints = chosen.spec, []
+    if chosen.note:
+        hints.append(f"Note: {chosen.note}.")
+    if spec.kind != "claude-code":
+        if not chosen.base_url:
+            hints.append("Set the server address too: pygym --set-base-url URL "
+                         "(with /v1, e.g. http://localhost:8080/v1)")
+        elif spec.name == "openai-compatible" and "/v1" not in chosen.base_url:
+            hints.append("Most OpenAI-compatible addresses end in /v1. If AI mode is not ready, "
+                         "check the address.")
+    if spec.model_required and not chosen.model:
+        hints.append("Choose the model too: pygym --set-model NAME (the name the server uses)")
+    key, _source = keys.get_key(spec.name) if spec.accepts_key else (None, "")
+    if spec.key_required and not key:
+        hints.append(f"No API key yet for {spec.title}: {key_fix(spec)}.")
+    elif (spec.accepts_key and not key and chosen.base_url
+          and not is_local(chosen.base_url)):
+        hints.append(f"No API key yet: {key_fix(spec)} (a server on another computer usually "
+                     "needs one).")
+    if just_set and spec.name == "openai" and chosen.base_url == spec.base_url:
+        hints.append(f"This is OpenAI's own API ({spec.base_url}). For another OpenAI-compatible "
+                     "server: pygym --set-provider openai-compatible --set-base-url URL "
+                     "--set-model NAME")
+    if spec.kind == "claude-code" and just_set:
+        hints.append(f"Needs Claude Code installed and logged in ({spec.start_hint}); "
+                     f"{spec.note}.")
+    return hints
+
+
+def _read_secret(prompt: str) -> str:
+    """One line with the key: hidden (getpass) at a terminal, else one line from stdin (a pipe:
+    `printf '%s\\n' "$KEY" | pygym --set-key openai`)."""
+    stdin = sys.stdin
+    if stdin is not None and stdin.isatty():
+        return getpass.getpass(prompt)
+    return stdin.readline() if stdin is not None else ""
+
+
+def _set_key_command(console: Console, spec: registry.ProviderSpec,
+                     settings: config.Settings) -> int:
+    """pygym --set-key NAME. 0 saved, 1 cancelled or not written, 2 an empty or bad key."""
+    muted, fail = style.PALETTE["muted"], style.PALETTE["fail"]
+    try:
+        secret = _read_secret(f"API key for {spec.title} (hidden; Enter when done): ")
+    except (EOFError, KeyboardInterrupt):
+        console.print(Text("Cancelled: no key saved.", style=muted))
+        return 1
+    if not (secret or "").strip():
+        console.print(Text("No key given: nothing saved.", style=fail))
+        return 2
+    try:
+        keys.save_key(spec.name, secret)
+    except ValueError as e:      # the messages never hold the key
+        console.print(Text(f"Not saved: {e}.", style=fail))
+        return 2
+    except OSError as e:
+        console.print(Text(f"Could not save the key: {e.strerror or type(e).__name__}.",
+                           style=fail))
+        return 1
+    where = ("only you can read it" if os.name == "posix" else "in your user folder")
+    console.print(Text(f"Key saved for {spec.title} in {keys.path()} ({where}).", style="bold"))
+    _key, source = keys.get_key(spec.name)
+    if source != "saved":
+        console.print(Text(f"Note: {source.replace('env ', '')} is set in your environment and is "
+                           "used first.", style=muted))
+    chosen = _resolved(settings)
+    if chosen is None or chosen.spec.name != spec.name:
+        console.print(Text(f"To use it: pygym --set-provider {spec.name}", style=muted))
+    return 0
+
+
+def _forget_key_command(console: Console, spec: registry.ProviderSpec) -> None:
+    muted = style.PALETTE["muted"]
+    try:
+        removed = keys.remove_key(spec.name)
+    except OSError as e:
+        console.print(Text(f"Could not change {keys.path()}: {e.strerror or type(e).__name__}.",
+                           style=style.PALETTE["fail"]))
+        return
+    console.print(Text(f"Saved key for {spec.title} deleted." if removed
+                       else f"No saved key for {spec.title}.", style="bold" if removed else muted))
+    _key, source = keys.get_key(spec.name) if spec.accepts_key else (None, "")
+    if source:
+        console.print(Text(f"{spec.title} still gets a key from {source.replace('env ', '')}.",
+                           style=muted))
+
+
+def _print_providers(console: Console, settings: config.Settings) -> None:
+    """pygym --providers: every provider pygym knows. No network calls."""
+    chosen = _resolved(settings)
+    current = chosen.spec.name if chosen else ""
+    table = Table(title="AI providers (pygym --set-provider NAME)", title_justify="left",
+                  header_style="bold", pad_edge=False, show_lines=False)
+    table.add_column("name", style=style.PALETTE["command"], no_wrap=True)
+    table.add_column("what it is")
+    table.add_column("where")
+    table.add_column("API key")
+    table.add_column("default model", overflow="fold")
+    table.add_column("receives the prompt")
+    for spec in registry.PROVIDERS.values():
+        if spec.name == "openai-compatible":
+            where = "you choose"
+        elif spec.local and spec.company:      # the Hermes servers pass the prompt on
+            where = "this computer, then cloud"
+        elif spec.kind == "claude-code":
+            where = "cloud (claude command)"
+        else:
+            where = "this computer" if spec.local else "cloud"
+        try:
+            key_state = keys.describe(spec.name)
+        except Exception:  # noqa: BLE001  (a strange keys.json must not break the list)
+            key_state = "unknown"
+        if spec.accepts_key and key_state.startswith("no key"):
+            key_state += f"\n{' or '.join(spec.key_env) or keys.FALLBACK_ENV}"
+        model = spec.model or ("you choose" if spec.model_required else "the first it lists")
+        name = Text(spec.name + (" *" if spec.name == current else ""))
+        receiver = _receiver(spec, spec.base_url) if spec.name != "openai-compatible" \
+            else "the server you set"
+        table.add_row(name, spec.description, where, key_state, model, receiver)
+    console.print(table)
+    muted = style.PALETTE["muted"]
+    console.print(Text("* = your provider now. Only the prompt (the function's name and "
+                       "documentation) is sent, never your code.", style=muted))
+    console.print(Text("Other names: " + ", ".join(f"{a} = {n}" for a, n in registry.ALIASES.items()),
+                       style=muted))
+    console.print(Text("Next: pygym --set-provider NAME, then pygym --set-key NAME (if it needs "
+                       "a key), then pygym --status.", style=muted))
+
+
 def _print_status(console: Console, settings: config.Settings) -> None:
-    ready = _ai_ready()
+    ready, reason = _ai_ready(), ""
+    if ready:
+        # The fast check counts a cloud API as ready once a key exists. --status is where people
+        # check their key, so ask the server for real (a wrong key or model shows up here).
+        try:
+            live = ai.live_check(settings)
+        except Exception:  # noqa: BLE001  (--status must never crash)
+            live = None
+        if live is not None and not live.ok:
+            ready, reason = False, live.message
+    if not ready and not reason:
+        try:  # why not: no server, wrong model, a refused API key... (cached, never raises)
+            state = ai.status(settings)
+            reason = "" if state.ok else state.message
+        except Exception:  # noqa: BLE001  (--status must never crash)
+            reason = ""
     table = Table(show_header=False, box=None, padding=(0, 2, 0, 0), pad_edge=False)
     table.add_column(style=style.PALETTE["muted"])
     table.add_column()
     table.add_row("mode", settings.mode)
     table.add_row("level", f"{settings.level} ({LEVELS[settings.level]})")
     table.add_row("window", settings.ui)
-    table.add_row("provider", settings.provider)
-    table.add_row("model", settings.model)
-    table.add_row("address", settings.base_url)
+    chosen = _resolved(settings)
+    if chosen is None:
+        table.add_row("provider", Text(f"{settings.provider}: unknown (pygym --set-provider NAME; "
+                                       "pygym --providers lists them)", style=style.PALETTE["fail"]))
+    else:
+        spec = chosen.spec
+        table.add_row("provider", f"{spec.title} ({spec.name})")
+        table.add_row("model", _model_text(chosen))
+        table.add_row("address", _address_text(chosen))
+        if chosen.note:
+            table.add_row("note", chosen.note)
+        key_state = keys.describe(spec.name)
+        if spec.key_required and key_state == "no key":
+            key_state += f": {key_fix(spec)}"
+        table.add_row("API key", key_state)
+        table.add_row("prompt goes to", _receiver(spec, chosen.base_url)
+                      + " (only the function's name and documentation, never your code)")
     table.add_row("prefetch", "on (the next AI exercise is written while you work)"
                   if settings.prefetch else "off")
     table.add_row("AI time", f"up to {settings.ai_timeout} s per exercise")
     table.add_row("AI", Text("ready", style=style.PALETTE["pass"]) if ready
-                  else Text("not reachable (AI mode falls back to preset)", style=style.PALETTE["fail"]))
+                  else Text("not ready (AI mode falls back to preset)"
+                            + (f": {reason}" if reason else ""), style=style.PALETTE["fail"]))
     table.add_row("sandbox", _sandbox_cell())
     for name, value in _tips_rows():
         table.add_row(name, value)

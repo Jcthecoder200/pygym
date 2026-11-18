@@ -18,7 +18,9 @@ Contract (used by Session and the menu; keep these names and signatures):
 
 Modules: targets (what can be a target), levels (what each level means), usecases (real-world situations each exercise is set
 in, asked once per target and saved in PYGYM_HOME/generated/usecases/), prompt (what we ask),
-providers (Ollama, an OpenAI-compatible server, a fake for tests), validate (reply -> checked
+registry (the providers pygym knows: addresses, key variables, default models), keys (API keys:
+environment variables or PYGYM_HOME/keys.json), providers (Ollama, OpenAI-compatible servers,
+Anthropic, Claude Code, a fake for tests), validate (reply -> checked
 Exercise), cache (saved exercises in PYGYM_HOME/generated/), engine (the loop and the time
 budget).
 Set the environment variable PYGYM_NO_AI=1 to turn AI mode off (no network at all).
@@ -26,7 +28,7 @@ Set the environment variable PYGYM_NO_AI=1 to turn AI mode off (no network at al
 from __future__ import annotations
 
 from .engine import (AIStatus, GenerationUnavailable, WARNING, available, generate_exercise,
-                     status)
+                     live_check, status)
 
-__all__ = ["WARNING", "GenerationUnavailable", "AIStatus", "available", "status",
+__all__ = ["WARNING", "GenerationUnavailable", "AIStatus", "available", "live_check", "status",
            "generate_exercise"]

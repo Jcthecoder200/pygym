@@ -16,7 +16,7 @@ testing what they test; the `real_levels` fixture turns them on (every level tes
 import pytest
 
 from pygym import session as session_module
-from pygym.ai import levels, providers, usecases
+from pygym.ai import levels, providers, registry, usecases
 
 STUB_USE_CASES = ["a shop's daily sales", "scores of a class test", "temperatures of a week"]
 _REAL_LOAD = usecases.load
@@ -41,6 +41,9 @@ def _rich_is_not_a_legacy_windows_console(monkeypatch):
 def _isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("PYGYM_HOME", str(tmp_path / "pygym-home"))
     monkeypatch.setenv("PYGYM_NO_AI", "1")
+    # the developer's own API keys (OPENAI_API_KEY ...) must never change a test's result
+    for name in registry.key_env_names() + providers.CLAUDE_ENV_REMOVED:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -48,6 +51,11 @@ def _quiet_background(monkeypatch):
     monkeypatch.setattr(session_module, "_prefetch_setting", lambda: False)
     monkeypatch.setattr(usecases, "load", lambda target: list(STUB_USE_CASES))
     monkeypatch.setattr(providers, "_thinking", {})
+    # what a provider learned about a server (refused fields, first model, `claude auth status`)
+    monkeypatch.setattr(providers, "_quirks", {})
+    monkeypatch.setattr(providers, "_first_models", {})
+    monkeypatch.setattr(providers, "_no_output_config", set())
+    monkeypatch.setattr(providers, "_claude_auth", {})
     monkeypatch.setattr(levels, "check_level", lambda tree, fn, level: None)
 
 

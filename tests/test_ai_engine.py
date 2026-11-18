@@ -6,7 +6,7 @@ import urllib.request
 import pytest
 
 from pygym import ai, config, loader
-from pygym.ai import cache, engine
+from pygym.ai import cache, engine, providers
 from pygym.ai.prompt import SCHEMA
 from pygym.ai.providers import FakeProvider, ProviderError
 from pygym.session import Session
@@ -265,6 +265,54 @@ def test_available_never_raises(monkeypatch):
     assert ai.available() is False
 
 
+def test_status_waits_longer_for_a_cloud_server(monkeypatch):
+    monkeypatch.delenv("PYGYM_NO_AI", raising=False)
+    seen = []
+
+    class Slow:
+        base_url = "https://api.example.com/v1"
+
+        def ping(self, timeout=0.5):
+            seen.append(timeout)
+            return True, "ok"
+    monkeypatch.setattr(engine, "get_provider", lambda settings: Slow())
+    assert ai.status().ok and seen == [providers.REMOTE_PING_TIMEOUT]
+
+
+@pytest.mark.parametrize("provider, base_url, wait", [
+    ("ollama", "", 0.5), ("ollama", "http://192.168.1.5:11434", providers.REMOTE_PING_TIMEOUT),
+    ("lmstudio", "", 0.5), ("openai-compatible", "http://localhost:8080/v1", 0.5),
+    ("openai-compatible", "https://llm.example.com/v1", providers.REMOTE_PING_TIMEOUT),
+    ("openai", "", providers.REMOTE_PING_TIMEOUT), ("groq", "", providers.REMOTE_PING_TIMEOUT),
+    ("anthropic", "", providers.REMOTE_PING_TIMEOUT), ("hermes", "", 10.0),
+    ("hermes-agent", "", 10.0),
+])
+def test_status_uses_the_timeout_of_each_provider(monkeypatch, provider, base_url, wait):
+    monkeypatch.delenv("PYGYM_NO_AI", raising=False)
+    engine._status_cache.clear()
+    seen = []
+
+    def ping(self, timeout=0.5):
+        seen.append(timeout)
+        return True, "ok"
+    for cls in (providers.OllamaProvider, providers.OpenAICompatProvider,
+                providers.AnthropicProvider):
+        monkeypatch.setattr(cls, "ping", ping)
+    s = config.Settings(provider=provider, model="m", base_url=base_url)
+    st = ai.status(s)
+    assert st.ok and seen == [wait] and st.provider == provider
+    engine._status_cache.clear()
+
+
+def test_status_reports_the_default_model_of_the_provider(monkeypatch):
+    monkeypatch.delenv("PYGYM_NO_AI", raising=False)
+    engine._status_cache.clear()
+    st = ai.status(config.Settings(provider="groq", model="", base_url=""))
+    assert st.ok is False and st.model == "openai/gpt-oss-20b"
+    assert "pygym --set-key groq, or set GROQ_API_KEY" in st.message
+    engine._status_cache.clear()
+
+
 def test_status_uses_the_provider_ping_and_is_cached(use):
     fake = use(ok=True, reason="ready")
     assert ai.status().ok and ai.available()
@@ -315,3 +363,21 @@ def test_rejected_replies_go_to_the_local_log(use):
     ai.generate_exercise("zip", 1)
     entry = json.loads(cache.rejected_path().read_text().splitlines()[-1])
     assert entry["target"] == "zip" and "JSON" in entry["problem"] and entry["reply"] == "{bad"
+
+
+def test_live_check_uses_the_providers_check_and_is_off_with_no_ai(monkeypatch):
+    calls = []
+
+    class Cloud:
+        base_url = "https://api.example.com/v1"
+        model = "m"
+
+        def check(self, timeout=5.0):
+            calls.append(timeout)
+            return False, "refused the API key (HTTP 401)"
+    monkeypatch.setattr(engine, "get_provider", lambda settings: Cloud())
+    monkeypatch.setenv("PYGYM_NO_AI", "1")
+    assert engine.live_check() is None and calls == []
+    monkeypatch.delenv("PYGYM_NO_AI", raising=False)
+    st = engine.live_check()
+    assert st.ok is False and "refused" in st.message and calls[0] >= engine.LIVE_CHECK_TIMEOUT

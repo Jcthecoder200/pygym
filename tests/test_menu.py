@@ -7,6 +7,7 @@ import pytest
 from rich.console import Console
 
 from pygym import ai, config, menu, style
+from pygym.ai import registry
 from pygym.loader import ExerciseUnavailable
 
 
@@ -558,6 +559,64 @@ def test_set_mode_and_set_model():
     assert rc == 0 and (s.mode, s.model) == ("ai", "qwen2.5:3b")
 
 
+def test_set_provider_and_base_url_for_your_own_api_key(monkeypatch):
+    monkeypatch.setenv("PYGYM_API_KEY", "sk-test")
+    rc, console, starts = cli("--set-provider", "openai", "--set-base-url", "https://api.example.com/v1/",
+                              "--set-model", "some-model")
+    s = config.load()
+    assert rc == 0 and starts.choices == []
+    assert (s.provider, s.base_url, s.model) == ("openai", "https://api.example.com/v1", "some-model")
+    assert "provider=openai" in output(console) and "No API key" not in output(console)
+
+
+def test_set_provider_openai_alone_asks_for_the_address_then_the_key(monkeypatch):
+    monkeypatch.delenv("PYGYM_API_KEY", raising=False)
+    rc, console, _ = cli("--set-provider", "openai")
+    assert rc == 0 and config.load().provider == "openai"
+    assert "--set-base-url" in output(console)
+    rc, console, _ = cli("--set-base-url", "https://api.example.com/v1")
+    assert rc == 0 and "PYGYM_API_KEY" in output(console)
+
+
+def test_local_openai_server_needs_no_key_hint(monkeypatch):
+    monkeypatch.delenv("PYGYM_API_KEY", raising=False)
+    rc, console, _ = cli("--set-provider", "openai", "--set-base-url", "http://localhost:1234/v1")
+    assert rc == 0 and "No API key" not in output(console)
+
+
+def test_back_to_ollama_resets_the_address():
+    cli("--set-provider", "openai", "--set-base-url", "https://api.example.com/v1")
+    cli("--set-provider", "ollama")
+    s = config.load()
+    # "" = the provider's default address (0.3.1): the OpenAI address is gone, Ollama's is used
+    assert (s.provider, s.base_url) == ("ollama", "")
+    assert registry.resolve(s).base_url == "http://localhost:11434"
+
+
+def test_ollama_on_another_computer_keeps_its_address():
+    cli("--set-provider", "ollama", "--set-base-url", "http://192.168.1.5:11434")
+    assert config.load().base_url == "http://192.168.1.5:11434"
+
+
+@pytest.mark.parametrize("bad", ["api.openai.com/v1", "ftp://x", " "])
+def test_bad_base_url_is_rejected(bad):
+    rc, console, _ = cli("--set-base-url", bad)
+    assert rc == 2 and config.load().base_url == config.Settings().base_url
+
+
+def test_unknown_provider_is_exit_code_2():
+    assert cli("--set-provider", "skynet")[0] == 2
+
+
+def test_status_shows_the_key_but_never_its_value(monkeypatch):
+    monkeypatch.setenv("PYGYM_API_KEY", "sk-very-secret")
+    cli("--set-provider", "openai", "--set-base-url", "https://api.example.com/v1")
+    rc, console, _ = cli("--status")
+    text = output(console)
+    assert rc == 0 and "set (PYGYM_API_KEY)" in text and "sk-very-secret" not in text
+    assert "not ready" in text and "turned off" in text     # the reason is shown too
+
+
 def test_empty_model_is_rejected():
     assert cli("--set-model", " ")[0] == 2
     assert config.load().model == config.Settings().model
@@ -586,10 +645,10 @@ def test_list_libraries_and_functions():
 
 def test_status_says_whether_ai_is_ready(monkeypatch):
     rc, console, starts = cli("--status")
-    assert rc == 0 and "not reachable" in output(console) and "qwen2.5:1.5b" in output(console)
+    assert rc == 0 and "not ready" in output(console) and "qwen2.5:1.5b" in output(console)
     monkeypatch.setattr(ai, "available", lambda: True)
     rc, console, starts = cli("--status")
-    assert "ready" in output(console) and "not reachable" not in output(console)
+    assert "ready" in output(console) and "not ready" not in output(console)
 
 
 def test_no_arguments_opens_the_menu():
@@ -631,3 +690,21 @@ def test_python_dash_m_pygym_first_screen_and_quit(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "Practice one Python function at a time." in r.stdout and "Bye!" in r.stdout
     assert "Traceback" not in r.stderr
+
+
+def test_status_asks_a_cloud_server_whether_it_accepts_the_key(monkeypatch):
+    # the fast check counts a cloud API with any key as ready; --status checks the key for real
+    monkeypatch.setattr(ai, "available", lambda: True)
+    monkeypatch.setattr(ai, "live_check", lambda settings: ai.AIStatus(
+        False, "openai", "m", "OpenAI refused the API key (HTTP 401)"))
+    rc, console, _ = cli("--status")
+    text = output(console)
+    assert rc == 0 and "not ready" in text and "refused the API key" in text
+
+
+def test_status_stays_ready_when_the_live_check_passes_or_is_off(monkeypatch):
+    monkeypatch.setattr(ai, "available", lambda: True)
+    monkeypatch.setattr(ai, "live_check", lambda settings: ai.AIStatus(True, "openai", "m", "ok"))
+    assert "not ready" not in output(cli("--status")[1])
+    monkeypatch.setattr(ai, "live_check", lambda settings: None)        # PYGYM_NO_AI
+    assert "not ready" not in output(cli("--status")[1])

@@ -4,6 +4,77 @@ All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- **Provider presets** (`pygym.ai.registry`): `ollama`, `openai-compatible`, `lmstudio`,
+  `openai`, `anthropic`, `gemini`, `openrouter`, `groq`, `hermes`, `hermes-agent` and
+  `claude-code`, each with its address, key variable, default model and who receives the prompt.
+  Aliases: `custom`, `google`, `claude`, `lm-studio`. New providers: the Anthropic Messages API
+  (`AnthropicProvider`) and your Claude plan through `claude -p` (`ClaudeCodeProvider`).
+- `pygym --set-provider NAME` takes any of them (unknown name: exit code 2 and the list).
+  `pygym --set-base-url URL`. After any `--set-*`, pygym says what is still missing: the key
+  (`pygym --set-key NAME, or set ENV_VAR`), the address or the model.
+- `pygym --set-key NAME` saves an API key in `PYGYM_HOME/keys.json` (mode 600). The key is read
+  hidden with `getpass` at a terminal, or one line from a pipe; never from the command line
+  (a key typed there is refused and not printed back). `pygym --forget-key NAME` deletes it.
+  Keys come from the provider's own variable, then `keys.json`, then `PYGYM_API_KEY`
+  (`pygym.ai.keys`).
+- `pygym --providers`: a table of every provider with its key status, default model, where it
+  runs and who receives the prompt. No network calls.
+- `pygym --status` shows the provider, the address and model it will really use (with
+  "(default)"), how an old setting was read, where the key comes from (never the key), who
+  receives the prompt, and when AI mode is not ready, the reason.
+- `--set-model default` / `--set-base-url default` go back to the provider's defaults.
+- Provider replies: a field a server refuses (`max_tokens`, `temperature`, `seed`,
+  `json_schema`) is dropped once and remembered; `<think>` blocks and code fences around the
+  JSON are removed; HTTP errors become one clear line (key missing or refused, rate limit or no
+  credits, wrong model, wrong address, server problem).
+### Changed
+- `config.json`: an empty `model` or `base_url` means the provider's default.
+  `--set-provider` saves them as `""` when the provider changes (unless `--set-model` /
+  `--set-base-url` are given), so an old Ollama address or model never goes to another provider.
+  The old values keep their meaning: `"openai"` with an address that is not OpenAI's is read as
+  `openai-compatible`.
+- `PYGYM_API_KEY` is now the key of `openai-compatible` and a fallback for every other provider
+  that takes a key.
+- The "is AI ready?" check for cloud providers only checks that a key is there (no request, no
+  cost), so the menu never waits on the internet. `pygym --status` runs a live check instead
+  (`ai.live_check`): it asks the server whether it accepts the key, so a wrong key shows there.
+  Tried against the real OpenAI, Anthropic, Gemini, OpenRouter and Groq APIs with a made-up key:
+  all five report it as refused (OpenRouter through `GET /key`, its `/models` needs no key).
+### Security
+- No API key ever reaches the exercise sandbox: on top of the allow-list of variables, every key
+  variable of every provider (and any `*API_KEY*` name) is removed from the child environment.
+  The `claude` process does not get the other providers' keys either. Keys are hidden in error
+  messages (a server that echoes the key gets `[key hidden]`) and never in a provider's `repr`.
+### Fixed
+- `pygym --set-provider X` when X was already the provider opened the main menu instead of
+  saving and exiting.
+- AI mode never worked with a cloud API: the "is AI ready?" check waited 0.5 s, but OpenAI,
+  Gemini and OpenRouter took 2.6-4.6 s to answer `GET /models` (measured from Hong Kong), so AI
+  mode always fell back to the hand-written exercises. Servers on this computer still get 0.5 s;
+  others get 6 s, and a provider can ask for longer (the Hermes servers: 10 s)
+  (`providers.ping_timeout`, used by `ai.status` for each provider).
+- A 401/403 at the ready check says whether the key is missing ("needs an API key (HTTP 401)")
+  or refused, and names the provider's own key variable and `pygym --set-key NAME`.
+### Docs
+- README rewritten as the one front page: install vs import name (`pip install pygym-cityu`,
+  `import pygym`), quick start for terminal / Python / Jupyter, tested setup, every command-line
+  flag and menu key, editor and Jupyter commands, the Python API (`exercise`, `Session`,
+  `Response`, `config`, `tips`), how to use your own OpenAI-compatible model and API key
+  (`provider`, `base_url`, `PYGYM_API_KEY`), all settings and environment variables,
+  troubleshooting, a roadmap and an index of the other
+  docs. Status, test count and known problems updated for 0.3.0.
+- README: "Why pygym" (the problem and who it is for), "How it works" (two diagrams: the
+  command -> Session -> grader -> sandbox loop, and where exercises come from), and three images
+  of real output: the tip under a traceback and the exercise flow in an executed notebook, and
+  `--set-provider` + `--status`. `experiments/readme_shots.py` rebuilds them.
+- README "Use your own AI model or API key" rewritten for the presets: the provider table, three
+  steps (`--set-provider`, `--set-key` or the variable, `--status`), `--providers`, your own
+  OpenAI-compatible server, and who receives the prompt. Command line, settings, environment
+  variables, troubleshooting, known problem 10 (which providers were only unit-tested) and the
+  roadmap updated. docs/AI_MODE.md: the providers, the ready check and privacy.
+
+## [0.3.0] - 2026-11-16
 ### Tests
 - The suite now runs on Windows. Found by running it on Windows 10/11 with Python 3.9: tests that assumed Linux
   (the Windows default front-end is tk, bwrap paths, symlink rights, a memory limit that Windows does not have

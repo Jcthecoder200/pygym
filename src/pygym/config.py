@@ -26,9 +26,10 @@ LEVELS = (1, 2, 3)
 class Settings:
     mode: str = "preset"          # "preset" or "ai"
     level: int = 1                # 1 beginner, 2 intermediate, 3 advanced
-    provider: str = "ollama"      # LLM provider for AI mode
-    model: str = "qwen2.5:1.5b"   # model name for that provider
-    base_url: str = "http://localhost:11434"
+    provider: str = "ollama"      # LLM provider for AI mode (pygym.ai.registry)
+    model: str = "qwen2.5:1.5b"   # model name for that provider ("" = its default)
+    base_url: str = "http://localhost:11434"   # "" = the provider's default address
+    # API keys are never here: pygym.ai.keys (environment variables or PYGYM_HOME/keys.json)
     ui: str = "auto"              # window for the exercise: one of UIS
     library: str = "builtins"     # the library used last in the menu
     prefetch: bool = True         # write the next AI exercise while the student works
@@ -60,6 +61,9 @@ def _clean(name: str, value: Any) -> Any:
     if name == "level":
         ok = isinstance(value, int) and not isinstance(value, bool) and value in LEVELS
         return value if ok else default
+    # model and base_url: "" means the provider's default (pygym.ai.registry)
+    if name in ("model", "base_url") and isinstance(value, str) and not value.strip():
+        return ""
     # provider, model, base_url, library: any non-empty text
     if isinstance(value, str) and value.strip():
         return value.strip()
